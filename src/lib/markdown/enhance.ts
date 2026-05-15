@@ -1,4 +1,3 @@
-import mermaid from "mermaid"
 import { createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 
@@ -31,6 +30,7 @@ const BASE64_MIN_LENGTH = 16
 const BASE64_TEXT_NODE_EXCLUDE_SELECTOR = "a, button, code, pre, input, textarea, script, style, .md-copy-button, .md-base64-token, .md-heading-anchor, .katex, .hljs, .mermaid"
 const CODE_BLOCK_COLLAPSE_LINE_THRESHOLD = 24
 const CODE_BLOCK_COLLAPSE_HEIGHT_THRESHOLD = 520
+let codeBlockToggleBindingSequence = 0
 
 function getLightboxImageElements(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLImageElement>("img"))
@@ -577,9 +577,15 @@ function bindLongCodeBlockToggles(container: HTMLElement) {
     const header = codeBlock.querySelector<HTMLElement>(":scope > .md-code-header")
     const code = codeBlock.querySelector<HTMLElement>(":scope > code")
 
-    if (!header || !code || header.querySelector(".md-code-toggle-button") || codeBlock.querySelector(".md-code-bottom-toggle-button")) {
+    if (!header || !code) {
       continue
     }
+
+    header.querySelector(".md-code-toggle-button")?.remove()
+    codeBlock.querySelector(".md-code-bottom-toggle-button")?.remove()
+    delete codeBlock.dataset.codeCollapsible
+    delete codeBlock.dataset.codeExpanded
+    delete codeBlock.dataset.codeToggleBinding
 
     const source = code.textContent ?? ""
     const lineCount = source.split(/\r\n|\r|\n/).length
@@ -599,6 +605,7 @@ function bindLongCodeBlockToggles(container: HTMLElement) {
     bottomButton.type = "button"
     bottomButton.className = "md-code-bottom-toggle-button"
     bottomButton.setAttribute("aria-expanded", "false")
+    const bindingId = String(++codeBlockToggleBindingSequence)
     bottomButton.textContent = "展开代码"
 
     const setExpanded = (expanded: boolean) => {
@@ -615,6 +622,7 @@ function bindLongCodeBlockToggles(container: HTMLElement) {
     }
 
     codeBlock.dataset.codeCollapsible = "true"
+    codeBlock.dataset.codeToggleBinding = bindingId
     setExpanded(false)
     button.addEventListener("click", handleClick)
     bottomButton.addEventListener("click", handleClick)
@@ -623,10 +631,15 @@ function bindLongCodeBlockToggles(container: HTMLElement) {
     cleanups.push(() => {
       button.removeEventListener("click", handleClick)
       bottomButton.removeEventListener("click", handleClick)
+      if (codeBlock.dataset.codeToggleBinding !== bindingId) {
+        return
+      }
+
       button.remove()
       bottomButton.remove()
       delete codeBlock.dataset.codeCollapsible
       delete codeBlock.dataset.codeExpanded
+      delete codeBlock.dataset.codeToggleBinding
     })
   }
 
@@ -642,6 +655,8 @@ async function renderMermaidBlocks(container: HTMLElement) {
   if (mermaidBlocks.length === 0) {
     return
   }
+
+  const { default: mermaid } = await import("mermaid")
 
   const isDark = document.documentElement.classList.contains("dark")
   mermaid.initialize({
@@ -684,6 +699,34 @@ async function renderMermaidBlocks(container: HTMLElement) {
   )
 }
 
+async function highlightCodeBlocks(container: HTMLElement) {
+  const codeBlocks = Array.from(container.querySelectorAll<HTMLElement>("pre.md-code-block code[class*='language-']"))
+    .filter((codeBlock) => !codeBlock.closest("[data-mermaid]") && codeBlock.dataset.highlighted !== "true")
+
+  if (codeBlocks.length === 0) {
+    return
+  }
+
+  const { default: hljs } = await import("highlight.js")
+
+  for (const codeBlock of codeBlocks) {
+    const languageClass = Array.from(codeBlock.classList).find((className) => className.startsWith("language-"))
+    const languageName = languageClass?.slice("language-".length) ?? ""
+    const source = codeBlock.textContent ?? ""
+
+    try {
+      const highlighted = languageName && hljs.getLanguage(languageName)
+        ? hljs.highlight(source, { language: languageName, ignoreIllegals: true }).value
+        : hljs.highlightAuto(source).value
+
+      codeBlock.innerHTML = highlighted
+      codeBlock.dataset.highlighted = "true"
+    } catch {
+      codeBlock.textContent = source
+    }
+  }
+}
+
 export async function enhanceMarkdown(container: HTMLElement, options: MarkdownEnhancementOptions = {}) {
   const removeMarkdownLinkIndicators = enhanceMarkdownLinks(container)
   appendHeadingAnchors(container)
@@ -691,7 +734,10 @@ export async function enhanceMarkdown(container: HTMLElement, options: MarkdownE
   const removeLongCodeBlockToggles = options.collapseLongCodeBlocks
     ? bindLongCodeBlockToggles(container)
     : () => {}
-  await renderMermaidBlocks(container)
+  await Promise.all([
+    highlightCodeBlocks(container),
+    renderMermaidBlocks(container),
+  ])
   return () => {
     removeMarkdownLinkIndicators()
     removeLongCodeBlockToggles()

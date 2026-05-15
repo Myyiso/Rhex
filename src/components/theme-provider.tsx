@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, type Dispatch, type ReactNode, type SetStateAction, useContext, useLayoutEffect, useSyncExternalStore } from "react"
+import { createContext, type Dispatch, type ReactNode, type SetStateAction, useContext, useLayoutEffect, useMemo, useSyncExternalStore } from "react"
 
 import {
   DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT,
@@ -12,6 +12,7 @@ import {
   subscribeThemeSettings,
   type ThemeMode,
   type ThemePreference,
+  type ThemeRuntimeSettings,
 } from "@/lib/theme"
 
 function readThemeHydrationSnapshot() {
@@ -59,6 +60,7 @@ interface ThemeContextValue {
   setTheme: Dispatch<SetStateAction<string>>
   systemTheme: ThemeMode
   theme: ThemePreference
+  themeSettings?: ThemeRuntimeSettings
   themes: ThemePreference[]
 }
 
@@ -76,11 +78,17 @@ export function useTheme() {
   return useContext(ThemeContext) ?? THEME_CONTEXT_FALLBACK
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({ children, settings: themeSettings }: { children: ReactNode; settings?: ThemeRuntimeSettings }) {
+  const serverSnapshot = useMemo(
+    () => themeSettings
+      ? { ...DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT, preset: themeSettings.preset, fontSizePreset: themeSettings.fontSizePreset }
+      : readThemeHydrationSnapshot(),
+    [themeSettings],
+  )
   const settings = useSyncExternalStore(
     subscribeThemeSettings,
-    readThemeLocalSettingsSnapshot,
-    readThemeHydrationSnapshot,
+    () => readThemeLocalSettingsSnapshot(themeSettings),
+    () => serverSnapshot,
   )
   const systemTheme = useSyncExternalStore(
     subscribeSystemTheme,
@@ -96,8 +104,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   useLayoutEffect(() => {
-    applyTheme(theme, settings.preset, settings.fontSizePreset)
-  }, [resolvedTheme, settings.customThemeConfig, settings.fontSizePreset, settings.preset, theme])
+    applyTheme(theme, settings.preset, settings.fontSizePreset, themeSettings)
+  }, [resolvedTheme, settings.customThemeConfig, settings.fontSizePreset, settings.preset, theme, themeSettings])
 
   return (
     <ThemeContext.Provider
@@ -106,6 +114,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setTheme,
         systemTheme,
         theme,
+        themeSettings,
         themes: THEME_CONTEXT_FALLBACK.themes,
       }}
     >

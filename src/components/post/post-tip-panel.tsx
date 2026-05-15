@@ -8,6 +8,7 @@ import { createPortal } from "react-dom"
 import type { PostGiftRecentEventItem, PostGiftStatItem } from "@/db/post-gift-queries"
 import { LevelIcon } from "@/components/level-icon"
 import { UserAvatar } from "@/components/user/user-avatar"
+import { Modal } from "@/components/ui/modal"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/rbutton"
 import { Tooltip } from "@/components/ui/tooltip"
@@ -83,6 +84,10 @@ interface GiftAnchorPosition {
   top: number
 }
 
+interface PendingGiftConfirmation {
+  gift: SiteTippingGiftItem
+}
+
 const GIFT_FLOAT_LANES = [-18, 0, 18] as const
 const tipTriggerActiveClassName = [
   "border-amber-300/70",
@@ -146,6 +151,7 @@ export function PostTipPanel({
   const [floatingGiftPulses, setFloatingGiftPulses] = useState<FloatingGiftPulse[]>([])
   const [giftAnchorPositions, setGiftAnchorPositions] = useState<Record<string, GiftAnchorPosition>>({})
   const [message, setMessage] = useState("")
+  const [pendingGiftConfirmation, setPendingGiftConfirmation] = useState<PendingGiftConfirmation | null>(null)
   const [isPending, startTransition] = useTransition()
   const isClient = useSyncExternalStore(
     () => () => undefined,
@@ -178,6 +184,7 @@ export function PostTipPanel({
     return `今日还能打赏 ${Math.max(0, dailyLimit - todayUsed)} 次，本${targetLabel}还能打赏 ${Math.max(0, perPostLimit - postUsed)} 次`
   }, [dailyLimit, enabled, isLoggedIn, perPostLimit, pointName, points, postUsed, targetLabel, todayUsed])
   const compactSupporters = supporters.slice(0, 6)
+  const isMobileViewport = isClient && window.matchMedia("(max-width: 639px)").matches
   const giftStatMap = useMemo(
     () => new Map(giftSummary.map((item) => [item.giftId, item])),
     [giftSummary],
@@ -380,6 +387,32 @@ export function PostTipPanel({
     })
   }
 
+  function requestGiftTip(gift: SiteTippingGiftItem) {
+    setSelectedGiftId(gift.id)
+
+    if (getTipBlockedMessage(gift.price, "gift")) {
+      void handleTip({ mode: "gift", gift })
+      return
+    }
+
+    if (isMobileViewport) {
+      setPendingGiftConfirmation({ gift })
+      return
+    }
+
+    void handleTip({ mode: "gift", gift })
+  }
+
+  function confirmGiftTip() {
+    const targetGift = pendingGiftConfirmation?.gift
+    if (!targetGift) {
+      return
+    }
+
+    setPendingGiftConfirmation(null)
+    void handleTip({ mode: "gift", gift: targetGift })
+  }
+
   useEffect(() => {
     if (!open) {
       return
@@ -426,8 +459,9 @@ export function PostTipPanel({
   }, [clearAnimationTimers])
 
   return (
+    <>
     <Popover open={open} onOpenChange={handleOpenChange}>
-      <div className="relative">
+      <div className="relative shrink-0">
         <Tooltip content={triggerTooltip}>
           <PopoverTrigger
             title={triggerLabel}
@@ -435,7 +469,7 @@ export function PostTipPanel({
             aria-expanded={open}
             aria-haspopup="dialog"
             className={cn(
-              "group relative inline-flex h-9 min-w-9 items-center justify-center overflow-visible rounded-full px-1.5 text-left transition-all duration-300 hover:-translate-y-0.5",
+              "group/tip-trigger relative inline-flex h-9 min-w-9 shrink-0 items-center justify-center overflow-visible rounded-full px-1.5 text-left transition-all duration-300 hover:-translate-y-0.5",
               open
                 ? tipTriggerActiveClassName
                 : giftSummary.length > 0
@@ -474,7 +508,7 @@ export function PostTipPanel({
                     "block whitespace-nowrap text-[10px] font-semibold leading-none transition-all duration-300",
                     open || tipTotalPoints <= 0
                       ? "ml-0 max-w-0 opacity-0"
-                      : "ml-0 max-w-0 opacity-0 text-amber-700 dark:text-amber-200 group-hover:ml-1.5 group-hover:max-w-[88px] group-hover:opacity-100 group-focus-visible:ml-1.5 group-focus-visible:max-w-[88px] group-focus-visible:opacity-100",
+                      : "ml-0 max-w-0 opacity-0 text-amber-700 dark:text-amber-200 group-hover/tip-trigger:ml-1.5 group-hover/tip-trigger:max-w-[88px] group-hover/tip-trigger:opacity-100 group-focus-visible/tip-trigger:ml-1.5 group-focus-visible/tip-trigger:max-w-[88px] group-focus-visible/tip-trigger:opacity-100",
                   )}
                 >
                   + {tipTotalPoints}
@@ -482,7 +516,7 @@ export function PostTipPanel({
               </span>
             </span>
             {tipCount > 0 ? (
-              <span className="pointer-events-none absolute -right-1 -top-1 z-20 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white shadow-[0_6px_14px_rgba(244,63,94,0.35)]">
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white ring-2 ring-background shadow-[0_6px_14px_rgba(244,63,94,0.35)]">
                 {tipCount}
               </span>
             ) : null}
@@ -557,8 +591,7 @@ export function PostTipPanel({
                         getTipBlockedMessage(gift.price, "gift") ? "opacity-60" : "",
                       )}
                       onClick={() => {
-                        setSelectedGiftId(gift.id)
-                        void handleTip({ mode: "gift", gift })
+                        requestGiftTip(gift)
                       }}
                       disabled={isPending}
                       aria-label={`赠送${gift.name}`}
@@ -679,5 +712,37 @@ export function PostTipPanel({
         `}</style>
       </div>
     </Popover>
+    <Modal
+      open={Boolean(pendingGiftConfirmation)}
+      onClose={() => setPendingGiftConfirmation(null)}
+      closeDisabled={isPending}
+      title="确认送出礼物"
+      description="送出后会立即扣除对应积分，请确认礼物和价格。"
+      size="md"
+      footer={(
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => setPendingGiftConfirmation(null)} disabled={isPending}>取消</Button>
+          <Button type="button" onClick={confirmGiftTip} disabled={isPending || !pendingGiftConfirmation}>
+            {isPending ? "送出中..." : "确认送出"}
+          </Button>
+        </div>
+      )}
+    >
+      {pendingGiftConfirmation ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3 rounded-xl border bg-card p-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary text-2xl">
+              <LevelIcon icon={pendingGiftConfirmation.gift.icon} className="h-6 w-6 text-2xl" emojiClassName="text-inherit leading-none" svgClassName="[&>svg]:block [&>svg]:h-full [&>svg]:w-full" title={pendingGiftConfirmation.gift.name} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-semibold">{pendingGiftConfirmation.gift.name}</p>
+              <p className="mt-1 text-sm text-muted-foreground">价格：{formatNumber(pendingGiftConfirmation.gift.price)} {pointName}</p>
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">当前余额：{formatNumber(points)} {pointName}</p>
+        </div>
+      ) : null}
+    </Modal>
+    </>
   )
 }

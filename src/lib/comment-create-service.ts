@@ -137,13 +137,13 @@ export async function createCommentFlow(input: {
     normalizedParentId = normalizedParentId || replyTargetRootId
     normalizedReplyToCommentId = replyTargetComment.id
     normalizedReplyToUserId = replyTargetComment.userId
-    normalizedReplyToUserName = postContext.post.isAnonymous && replyTargetComment.userId === postContext.post.authorId && replyTargetComment.useAnonymousIdentity
+    normalizedReplyToUserName = postContext.post.isAnonymous && replyTargetComment.useAnonymousIdentity
       ? (anonymousMaskUser?.nickname ?? anonymousMaskUser?.username ?? "匿名用户")
       : (replyTargetComment.user.nickname ?? replyTargetComment.user.username)
   } else if (parentComment) {
     normalizedReplyToCommentId = parentComment.id
     normalizedReplyToUserId = parentComment.userId
-    normalizedReplyToUserName = postContext.post.isAnonymous && parentComment.userId === postContext.post.authorId && parentComment.useAnonymousIdentity
+    normalizedReplyToUserName = postContext.post.isAnonymous && parentComment.useAnonymousIdentity
       ? (anonymousMaskUser?.nickname ?? anonymousMaskUser?.username ?? "匿名用户")
       : (parentComment.user.nickname ?? parentComment.user.username)
   }

@@ -1,6 +1,11 @@
+import { revalidateTag, unstable_cache } from "next/cache"
+
 import { listPublishedCustomPagePathsWithoutFooter, findPublishedCustomPageByRoutePath, type CustomPageRow } from "@/db/custom-page-queries"
 import { formatMonthDayTime, serializeDateTime } from "@/lib/formatters"
 import { stripCustomPageHtmlToText } from "@/lib/custom-page-types"
+
+export const CUSTOM_PAGES_CACHE_TAG = "custom-pages"
+export const CUSTOM_PAGE_CACHE_REVALIDATE_SECONDS = 60 * 60
 
 export interface CustomPageItem {
   id: string
@@ -41,10 +46,32 @@ function mapCustomPage(item: CustomPageRow): CustomPageItem {
 }
 
 export async function getPublishedCustomPageByPath(routePath: string) {
-  const item = await findPublishedCustomPageByRoutePath(routePath)
+  const item = await getPersistentPublishedCustomPageByPath(routePath)
   return item ? mapCustomPage(item) : null
 }
 
 export async function getPublishedCustomPageFooterHiddenPaths() {
-  return listPublishedCustomPagePathsWithoutFooter()
+  return getPersistentPublishedCustomPageFooterHiddenPaths()
+}
+
+const getPersistentPublishedCustomPageByPath = unstable_cache(
+  async (routePath: string) => findPublishedCustomPageByRoutePath(routePath),
+  ["custom-pages:published-by-path"],
+  {
+    tags: [CUSTOM_PAGES_CACHE_TAG],
+    revalidate: CUSTOM_PAGE_CACHE_REVALIDATE_SECONDS,
+  },
+)
+
+const getPersistentPublishedCustomPageFooterHiddenPaths = unstable_cache(
+  async () => listPublishedCustomPagePathsWithoutFooter(),
+  ["custom-pages:footer-hidden-paths"],
+  {
+    tags: [CUSTOM_PAGES_CACHE_TAG],
+    revalidate: CUSTOM_PAGE_CACHE_REVALIDATE_SECONDS,
+  },
+)
+
+export function revalidateCustomPagesCache() {
+  revalidateTag(CUSTOM_PAGES_CACHE_TAG, "max")
 }

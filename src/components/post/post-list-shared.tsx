@@ -79,7 +79,7 @@ export function getPostPinTone(pinScope?: string | null, compact = false) {
 export function getPostTitleClassName(options: { isFeatured?: boolean; pinScope?: string | null; singleLine?: boolean; compact?: boolean }) {
   const pinTone = getPostPinTone(options.pinScope)
   const lineClampClassName = options.singleLine ? "truncate whitespace-nowrap" : "line-clamp-2"
-  const sizeClassName = options.compact ? "text-[13px] sm:text-[15px]" : "text-sm sm:text-base"
+  const sizeClassName = options.compact ? "text-[0.9rem] sm:text-[0.933rem]" : "text-sm sm:text-base"
 
   if (options.isFeatured) {
     return `${lineClampClassName} ${sizeClassName} font-semibold text-emerald-700 transition-colors hover:text-emerald-600 dark:text-emerald-300 dark:hover:text-emerald-200`

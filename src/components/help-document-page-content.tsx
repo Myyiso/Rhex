@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { ChevronLeft, ChevronRight, ExternalLink, Pin } from "lucide-react"
 
-import { MarkdownContent } from "@/components/markdown-content"
+import { MarkdownContentClient as MarkdownContent } from "@/components/markdown-content-client"
 import { Button } from "@/components/ui/button"
 import type { SiteDocumentItem } from "@/lib/site-documents"
 import { cn } from "@/lib/utils"

@@ -17,7 +17,7 @@ export function ForumFeedView({ items, listDisplayMode, postLinkDisplayMode = "S
   const normalItems = items.filter((item) => item.pinScope !== "GLOBAL")
 
   return (
-    <div className="lg:pl-4">
+    <div className="lg:pl-2">
       {pinnedItems.map((item) => (
         <ForumPostListItem
           key={item.id}

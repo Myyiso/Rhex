@@ -30,6 +30,10 @@ export class AiRateLimitError extends Error {
   }
 }
 
+type AiRateLimitRedisCommands = ReturnType<typeof getRedis> & {
+  aiDailyIncrWithExpire: (key: string, expireSeconds: string) => Promise<number>
+}
+
 /** 返回 UTC 当日 YYYY-MM-DD */
 function todayStr(d: Date = new Date()): string {
   const y = d.getUTCFullYear()
@@ -52,12 +56,7 @@ async function incrementViaRedis(appKey: string, day: string): Promise<number | 
     const client = getRedis()
     await connectRedisClient(client)
     const key = redisKeyFor(appKey, day)
-    const count = await client.incr(key)
-    if (count === 1) {
-      // 首次写入，设置 48h TTL（覆盖 UTC 日切）
-      await client.expire(key, 60 * 60 * 48)
-    }
-    return count
+    return Number(await (client as AiRateLimitRedisCommands).aiDailyIncrWithExpire(key, String(60 * 60 * 48)))
   } catch {
     return null
   }
@@ -117,21 +116,19 @@ export async function getTodayUsage(appKeys: string[]): Promise<DailyUsageItem[]
     client = null
   }
 
-  for (const appKey of appKeys) {
+  const redisValues = redisOk && client
+    ? await client.mget(...appKeys.map((appKey) => redisKeyFor(appKey, day))).catch(() => null)
+    : null
+
+  for (const [index, appKey] of appKeys.entries()) {
     let count = 0
     let source: "redis" | "prisma" = "prisma"
-    if (redisOk && client) {
-      try {
-        const v = await client.get(redisKeyFor(appKey, day))
-        if (v !== null && v !== undefined) {
-          count = Number(v) || 0
-          source = "redis"
-          out.push({ appKey, day, count, source })
-          continue
-        }
-      } catch {
-        // fallthrough prisma
-      }
+    const redisValue = Array.isArray(redisValues) ? redisValues[index] : null
+    if (redisValue !== null && typeof redisValue !== "undefined") {
+      count = Number(redisValue) || 0
+      source = "redis"
+      out.push({ appKey, day, count, source })
+      continue
     }
     const row = await prisma.aiUsageDaily.findUnique({
       where: { appKey_day: { appKey, day: todayDate() } },

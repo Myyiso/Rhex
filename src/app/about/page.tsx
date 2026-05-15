@@ -4,14 +4,13 @@ import { ArrowRight, Compass, HeartHandshake, LibraryBig, MessageSquareText, Spa
 
 import { AddonSlotRenderer, AddonSurfaceRenderer } from "@/addons-host"
 import { ForumPageShell } from "@/components/forum/forum-page-shell"
-import { HomeSidebarPanels } from "@/components/home/home-sidebar-panels"
+import { buildHomeSidebarCurrentUserSettings, HomeSidebarPanels } from "@/components/home/home-sidebar-panels"
 import { SiteHeader } from "@/components/site-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getHomeAnnouncements } from "@/lib/announcements"
 
-import { getCurrentUser } from "@/lib/auth"
 import { getBoards } from "@/lib/boards"
-import { getHomeSidebarHotTopics, resolveSidebarUser } from "@/lib/home-sidebar"
+import { getHomeSidebarHotTopics } from "@/lib/home-sidebar"
 import { getSiteSettings } from "@/lib/site-settings"
 import { getZones } from "@/lib/zones"
 
@@ -65,15 +64,13 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function AboutPage() {
   const settingsPromise = getSiteSettings()
-  const [settings, boards, zones, currentUser, hotTopics,announcements] = await Promise.all([
+  const [settings, boards, zones, hotTopics,announcements] = await Promise.all([
     settingsPromise,
     getBoards(),
     getZones(),
-    getCurrentUser(),
     settingsPromise.then((settings) => getHomeSidebarHotTopics(settings.homeSidebarHotTopicsCount)),
     getHomeAnnouncements(3),
   ])
-  const sidebarUser = await resolveSidebarUser(currentUser, settings)
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -212,7 +209,7 @@ export default async function AboutPage() {
             <aside className="mt-6 hidden pb-12 lg:block">
               <AddonSlotRenderer slot="about.sidebar.before" />
               <AddonSurfaceRenderer surface="about.sidebar" props={{ announcements, hotTopics, settings }}>
-                <HomeSidebarPanels user={sidebarUser} hotTopics={hotTopics} announcements={announcements}
+                <HomeSidebarPanels user={null} currentUserSettings={buildHomeSidebarCurrentUserSettings(settings)} hotTopics={hotTopics} announcements={announcements}
                   showAnnouncements={settings.homeSidebarAnnouncementsEnabled} siteName={settings.siteName} siteDescription={settings.siteDescription} siteLogoPath={settings.siteLogoPath} siteIconPath={settings.siteIconPath} />
               </AddonSurfaceRenderer>
               <AddonSlotRenderer slot="about.sidebar.after" />

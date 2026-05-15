@@ -113,7 +113,7 @@ export function mapListPost(post: ListPostSource, anonymousMaskIdentity: Anonymo
   const publicContent = getPublicPostContentText(post.content)
   const rewardPoolConfig = post.redPacket ? parsePostRewardPoolConfigFromContent(post.content) : null
   const latestReply = post.comments?.[0]
-  const latestReplyUsesAnonymousIdentity = Boolean(post.isAnonymous && latestReply && latestReply.userId === post.author.id && latestReply.useAnonymousIdentity)
+  const latestReplyUsesAnonymousIdentity = Boolean(post.isAnonymous && latestReply?.useAnonymousIdentity)
   const latestReplyAuthorName = latestReplyUsesAnonymousIdentity
     ? (anonymousMaskIdentity?.name ?? anonymousMaskIdentity?.username ?? "匿名用户")
     : (latestReply ? (latestReply.user?.nickname ?? latestReply.user?.username ?? null) : null)

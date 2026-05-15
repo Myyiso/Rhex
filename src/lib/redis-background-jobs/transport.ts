@@ -12,7 +12,6 @@ import {
 } from "@/lib/background-job-helpers"
 import {
   parseBackgroundJobIndexRecord,
-  serializeBackgroundJobIndexRecord,
 } from "@/lib/redis-background-jobs/index-store"
 import {
   type BackgroundJobFindOptions,
@@ -136,6 +135,100 @@ export function parseDeadLetterRecord(value: string) {
     return null
   }
 }
+
+type BackgroundJobRedisCommands = Redis & {
+  backgroundJobEnqueueDelayed: (
+    delayedKey: string,
+    indexKey: string,
+    score: string,
+    jobId: string,
+    encodedJob: string,
+  ) => Promise<number>
+  backgroundJobPushToStream: (
+    streamKey: string,
+    indexKey: string,
+    jobId: string,
+    encodedJob: string,
+    maxLength: string,
+  ) => Promise<string>
+}
+
+const REDIS_SCAN_PAGE_SIZE = 200
+
+async function scanDelayedJobMembers(
+  redis: Redis,
+  visit: (member: string) => boolean | Promise<boolean>,
+) {
+  let start = 0
+  let scannedCount = 0
+  const scanLimit = getBackgroundJobFullScanMaxEntries()
+
+  while (scannedCount < scanLimit) {
+    const stop = start + REDIS_SCAN_PAGE_SIZE - 1
+    const members = await redis.zrange(getBackgroundJobDelayedSetKey(), start, stop)
+    if (members.length === 0) {
+      break
+    }
+
+    for (const member of members) {
+      if (await visit(member)) {
+        return
+      }
+    }
+
+    scannedCount += members.length
+    if (members.length < REDIS_SCAN_PAGE_SIZE) {
+      break
+    }
+    start += REDIS_SCAN_PAGE_SIZE
+  }
+
+  if (scannedCount >= scanLimit) {
+    logInfo({
+      scope: "background-job",
+      action: "scan-delayed-truncated",
+      metadata: { scannedCount, scanLimit },
+    })
+  }
+}
+
+async function scanDeadLetterItems(
+  redis: Redis,
+  visit: (item: string) => boolean | Promise<boolean>,
+) {
+  let start = 0
+  let scannedCount = 0
+  const scanLimit = getBackgroundJobFullScanMaxEntries()
+
+  while (scannedCount < scanLimit) {
+    const stop = start + REDIS_SCAN_PAGE_SIZE - 1
+    const items = await redis.lrange(getBackgroundJobDeadLetterKey(), start, stop)
+    if (items.length === 0) {
+      break
+    }
+
+    for (const item of items) {
+      if (await visit(item)) {
+        return
+      }
+    }
+
+    scannedCount += items.length
+    if (items.length < REDIS_SCAN_PAGE_SIZE) {
+      break
+    }
+    start += REDIS_SCAN_PAGE_SIZE
+  }
+
+  if (scannedCount >= scanLimit) {
+    logInfo({
+      scope: "background-job",
+      action: "scan-dead-letter-truncated",
+      metadata: { scannedCount, scanLimit },
+    })
+  }
+}
+
 export class RedisBackgroundJobTransport implements BackgroundJobTransport {
   private readonly redis = createRedisConnection("background-job:transport")
   private groupReadyPromise: Promise<void> | null = null
@@ -147,12 +240,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
     const availableAt = job.availableAt ? new Date(job.availableAt).getTime() : 0
 
     if (availableAt > Date.now()) {
-      await this.redis.zadd(
+      await (this.redis as BackgroundJobRedisCommands).backgroundJobEnqueueDelayed(
         getBackgroundJobDelayedSetKey(),
+        getBackgroundJobIndexKey(),
         String(availableAt),
+        job.id,
         encodedJob,
       )
-      await this.writeDelayedJobIndex(this.redis, job.id, encodedJob)
       return { job }
     }
 
@@ -161,39 +255,15 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
   }
 
   async writeDelayedJobIndex(redis: Redis, jobId: string, encodedJob: string) {
-    await redis.hset(
-      getBackgroundJobIndexKey(),
-      jobId,
-      serializeBackgroundJobIndexRecord({
-        jobId,
-        location: "delayed",
-        encodedJob,
-      }),
-    )
+    await redis.hset(getBackgroundJobIndexKey(), jobId, JSON.stringify({ jobId, location: "delayed", encodedJob }))
   }
 
   async writeStreamJobIndex(redis: Redis, jobId: string, entryId: string) {
-    await redis.hset(
-      getBackgroundJobIndexKey(),
-      jobId,
-      serializeBackgroundJobIndexRecord({
-        jobId,
-        location: "stream",
-        entryId,
-      }),
-    )
+    await redis.hset(getBackgroundJobIndexKey(), jobId, JSON.stringify({ jobId, location: "stream", entryId }))
   }
 
   async writeDeadLetterJobIndex(redis: Redis, jobId: string, deadLetterValue: string) {
-    await redis.hset(
-      getBackgroundJobIndexKey(),
-      jobId,
-      serializeBackgroundJobIndexRecord({
-        jobId,
-        location: "dead-letter",
-        deadLetterValue,
-      }),
-    )
+    await redis.hset(getBackgroundJobIndexKey(), jobId, JSON.stringify({ jobId, location: "dead-letter", deadLetterValue }))
   }
 
   async deleteJobIndex(redis: Redis, jobId: string) {
@@ -317,20 +387,18 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
       }
     }
 
-    const delayedMembers = await this.redis.zrange(getBackgroundJobDelayedSetKey(), 0, -1)
-
-    for (const member of delayedMembers) {
+    await scanDelayedJobMembers(this.redis, async (member) => {
       const job = parseBackgroundJobEnvelopeString(member)
       if (!job || job.id !== jobId || (options?.match && !options.match(job))) {
-        continue
+        return false
       }
 
       const removedCount = await this.redis.zrem(getBackgroundJobDelayedSetKey(), member)
       if (removedCount > 0) {
         removedFrom.add("delayed")
       }
-      break
-    }
+      return true
+    })
 
     const streamEntryId = await this.findStreamEntryIdByJobId(jobId, options)
     if (streamEntryId) {
@@ -352,19 +420,18 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
       }
     }
 
-    const deadLetterItems = await this.redis.lrange(getBackgroundJobDeadLetterKey(), 0, -1)
-    for (const item of deadLetterItems) {
+    await scanDeadLetterItems(this.redis, async (item) => {
       const record = parseDeadLetterRecord(item)
       if (!record || record.job.id !== jobId || (options?.match && !options.match(record.job))) {
-        continue
+        return false
       }
 
       const removedCount = await this.redis.lrem(getBackgroundJobDeadLetterKey(), 1, item)
       if (removedCount > 0) {
         removedFrom.add("dead-letter")
       }
-      break
-    }
+      return true
+    })
 
     return {
       id: jobId,
@@ -403,13 +470,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
       && (!options?.match || options.match(job))
     const jobs: BackgroundJobEnvelope[] = []
 
-    const delayedMembers = await this.redis.zrange(getBackgroundJobDelayedSetKey(), 0, -1)
-    for (const member of delayedMembers) {
+    await scanDelayedJobMembers(this.redis, (member) => {
       const job = parseBackgroundJobEnvelopeString(member)
       if (job && matches(job)) {
         jobs.push(job)
       }
-    }
+      return Boolean(jobId && job?.id === jobId)
+    })
 
     let cursor = "-"
     let scannedCount = 0
@@ -461,13 +528,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
       }
     }
 
-    const deadLetterItems = await this.redis.lrange(getBackgroundJobDeadLetterKey(), 0, -1)
-    for (const item of deadLetterItems) {
+    await scanDeadLetterItems(this.redis, (item) => {
       const record = parseDeadLetterRecord(item)
       if (record?.job && matches(record.job)) {
         jobs.push(record.job)
       }
-    }
+      return Boolean(jobId && record?.job.id === jobId)
+    })
 
     return dedupeBackgroundJobsById(jobs)
   }
@@ -476,17 +543,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
     const streamKey = getBackgroundJobStreamKey()
     const streamMaxLength = getBackgroundJobStreamMaxLength()
 
-    const entryId = await this.redis.call(
-      "XADD",
+    await (this.redis as BackgroundJobRedisCommands).backgroundJobPushToStream(
       streamKey,
-      "MAXLEN",
-      "~",
-      String(streamMaxLength),
-      "*",
-      "job",
+      getBackgroundJobIndexKey(),
+      jobId,
       encodedJob,
+      String(streamMaxLength),
     )
-    await this.writeStreamJobIndex(this.redis, jobId, String(entryId))
   }
 
   async ensureReady() {
@@ -499,12 +562,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
     const availableAt = job.availableAt ? new Date(job.availableAt).getTime() : 0
 
     if (availableAt > Date.now()) {
-      await redis.zadd(
+      await (redis as BackgroundJobRedisCommands).backgroundJobEnqueueDelayed(
         getBackgroundJobDelayedSetKey(),
+        getBackgroundJobIndexKey(),
         String(availableAt),
+        job.id,
         encodedJob,
       )
-      await this.writeDelayedJobIndex(redis, job.id, encodedJob)
       return
     }
 
@@ -515,17 +579,13 @@ export class RedisBackgroundJobTransport implements BackgroundJobTransport {
     const streamKey = getBackgroundJobStreamKey()
     const streamMaxLength = getBackgroundJobStreamMaxLength()
 
-    const entryId = await redis.call(
-      "XADD",
+    await (redis as BackgroundJobRedisCommands).backgroundJobPushToStream(
       streamKey,
-      "MAXLEN",
-      "~",
-      String(streamMaxLength),
-      "*",
-      "job",
+      getBackgroundJobIndexKey(),
+      jobId,
       encodedJob,
+      String(streamMaxLength),
     )
-    await this.writeStreamJobIndex(redis, jobId, String(entryId))
   }
 
   private async ensureConsumerGroup() {

@@ -16,10 +16,11 @@ import {
 } from "@/lib/shared/config-parsers"
 import { formatCheckInRewardRange } from "@/lib/check-in-reward"
 import { defaultSiteSettingsCreateInput } from "@/lib/site-settings-defaults"
+import { buildThemeRuntimeSettings } from "@/lib/theme"
 import { parseMarkdownEmojiMapJson } from "@/lib/markdown-emoji"
 import { normalizePostListLoadMode } from "@/lib/post-list-load-mode"
 import { normalizePostListDisplayMode } from "@/lib/post-list-display"
-import { resolveAnonymousPostSettings, resolveAttachmentFeatureSettings, resolveAuthProviderSettings, resolveAvatarChangePointCostSettings, resolveBoardApplicationSettings, resolveBoardTreasurySettings, resolveCheckInMakeUpPriceSettings, resolveCheckInRewardSettings, resolveCheckInStreakSettings, resolveCommentAccessSettings, resolveFooterCopyrightSettings, resolveHomeFeedPostListLoadSettings, resolveHomeHotFeedSettings, resolveHomeSidebarAnnouncementSettings, resolveImageWatermarkSettings, resolveInteractionGateSettings, resolveIntroductionChangePointCostSettings, resolveInviteCodePurchasePriceSettings, resolveLeftSidebarDisplaySettings, resolveMarkdownImageUploadSettings, resolveMessageMediaSettings, resolveNicknameChangePointCostSettings, resolvePostContentLengthSettings, resolvePostJackpotSettings, resolvePostPageSizeSettings, resolvePostRedPacketSettings, resolvePostSlugGenerationSettings, resolveRegisterEmailWhitelistSettings, resolveRegisterInviteCodeHelpSettings, resolveRegisterNicknameLengthSettings, resolveRegistrationEmailTemplateSettings, resolveRegistrationRewardSettings, resolveSiteBrandingSettings, resolveSiteChatSettings, resolveSiteSecuritySettings, resolveUploadObjectStorageSettings, resolveUsernameSensitiveWordSettings, resolveVipLevelIconSettings, resolveVipNameColorSettings } from "@/lib/site-settings-app-state"
+import { resolveAnonymousPostSettings, resolveAttachmentFeatureSettings, resolveAuthProviderSettings, resolveAvatarChangePointCostSettings, resolveBoardApplicationSettings, resolveBoardTreasurySettings, resolveCheckInMakeUpPriceSettings, resolveCheckInRewardSettings, resolveCheckInStreakSettings, resolveCommentAccessSettings, resolveFooterCopyrightSettings, resolveHomeFeedPostListLoadSettings, resolveHomeHotFeedSettings, resolveHomeSidebarAnnouncementSettings, resolveImageWatermarkSettings, resolveInteractionGateSettings, resolveIntroductionChangePointCostSettings, resolveInviteCodePurchasePriceSettings, resolveLeftSidebarDisplaySettings, resolveMarkdownImageUploadSettings, resolveMessageMediaSettings, resolveNicknameChangePointCostSettings, resolvePostContentLengthSettings, resolvePostJackpotSettings, resolvePostPageSizeSettings, resolvePostRedPacketSettings, resolvePostSlugGenerationSettings, resolveRegisterEmailWhitelistSettings, resolveRegisterInviteCodeHelpSettings, resolveRegisterNicknameLengthSettings, resolveRegistrationEmailTemplateSettings, resolveRegistrationRewardSettings, resolveSiteBrandingSettings, resolveSiteChatSettings, resolveSiteSecuritySettings, resolveThemeCustomizationSettingsFromAppState, resolveUploadObjectStorageSettings, resolveUsernameSensitiveWordSettings, resolveVipLevelIconSettings, resolveVipNameColorSettings } from "@/lib/site-settings-app-state"
 import { resolveAuthPageShowcaseSettings } from "@/lib/site-settings-app-state"
 import { resolveAuthProviderSensitiveConfig, resolveCaptchaSensitiveConfig, resolveUploadStorageSensitiveConfig } from "@/lib/site-settings-sensitive-state"
 import { resolveSiteSearchSettings } from "@/lib/site-search-settings"
@@ -205,6 +206,9 @@ function mapSiteSettings(record: SiteSettingsRecordData, tippingGifts: SiteTippi
     appStateJson: record.appStateJson,
     iconPathFallback: "",
   })
+  const themeSettings = buildThemeRuntimeSettings(resolveThemeCustomizationSettingsFromAppState({
+    appStateJson: record.appStateJson,
+  }))
   const homeFeedPostListLoadSettings = resolveHomeFeedPostListLoadSettings({
     appStateJson: record.appStateJson,
     loadModeFallback: normalizePostListLoadMode(undefined),
@@ -392,6 +396,7 @@ function mapSiteSettings(record: SiteSettingsRecordData, tippingGifts: SiteTippi
     footerLinks: parseFooterLinks(record.footerLinksJson),
     headerAppLinks: parseSiteHeaderAppLinks(record.headerAppLinksJson),
     headerAppIconName: normalizeHeaderAppIconName(record.headerAppIconName),
+    theme: themeSettings,
     search: searchSettings,
     analyticsCode: record.analyticsCode,
     friendLinksEnabled: record.friendLinksEnabled,

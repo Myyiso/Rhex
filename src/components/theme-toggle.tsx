@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/rbutton"
 import { useTheme } from "@/components/theme-provider"
 import {
   FONT_SIZE_PRESET_STORAGE_KEY,
-  FONT_SIZE_PRESETS,
+  DEFAULT_THEME_RUNTIME_SETTINGS,
   THEME_PRESET_STORAGE_KEY,
-  THEME_PRESETS,
   THEME_SETTINGS_CHANGE_EVENT,
   type FontSizePreset,
+  type BuiltInThemePreset,
   type ThemePreference,
   type ThemePreset,
   getThemePresetDisplayMeta,
@@ -40,24 +40,22 @@ const themeMeta: Record<ThemePreference, { label: string; icon: typeof Sun }> = 
 const themeOptions: ThemePreference[] = ["light", "dark", "system"]
 const themeToggleFallbackLabel = "\u5207\u6362\u4e3b\u9898"
 const themeSwitchingClassNames = ["theme-switching", "theme-switching-fallback"]
-const themePresetOptions = Object.entries(THEME_PRESETS) as Array<[keyof typeof THEME_PRESETS, (typeof THEME_PRESETS)[keyof typeof THEME_PRESETS]]>
-const fontSizePresetOptions = Object.entries(FONT_SIZE_PRESETS) as Array<[FontSizePreset, (typeof FONT_SIZE_PRESETS)[FontSizePreset]]>
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, themeSettings = DEFAULT_THEME_RUNTIME_SETTINGS } = useTheme()
   const [themePreset, setThemePreset] = useState<ThemePreset>(() => {
     if (typeof window === "undefined") {
-      return "default"
+      return themeSettings.preset
     }
 
-    return resolveStoredThemePreset(window.localStorage.getItem(THEME_PRESET_STORAGE_KEY))
+    return resolveStoredThemePreset(window.localStorage.getItem(THEME_PRESET_STORAGE_KEY), themeSettings.preset)
   })
   const [fontSizePreset, setFontSizePreset] = useState<FontSizePreset>(() => {
     if (typeof window === "undefined") {
-      return "normal"
+      return themeSettings.fontSizePreset
     }
 
-    return resolveStoredFontSizePreset(window.localStorage.getItem(FONT_SIZE_PRESET_STORAGE_KEY))
+    return resolveStoredFontSizePreset(window.localStorage.getItem(FONT_SIZE_PRESET_STORAGE_KEY) ?? themeSettings.fontSizePreset)
   })
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -105,8 +103,8 @@ export function ThemeToggle() {
     }
 
     const syncThemeState = () => {
-      setThemePreset(resolveStoredThemePreset(window.localStorage.getItem(THEME_PRESET_STORAGE_KEY)))
-      setFontSizePreset(resolveStoredFontSizePreset(window.localStorage.getItem(FONT_SIZE_PRESET_STORAGE_KEY)))
+      setThemePreset(resolveStoredThemePreset(window.localStorage.getItem(THEME_PRESET_STORAGE_KEY), themeSettings.preset))
+      setFontSizePreset(resolveStoredFontSizePreset(window.localStorage.getItem(FONT_SIZE_PRESET_STORAGE_KEY) ?? themeSettings.fontSizePreset))
     }
 
     const handleStorage = (event: StorageEvent) => {
@@ -122,7 +120,7 @@ export function ThemeToggle() {
       window.removeEventListener(THEME_SETTINGS_CHANGE_EVENT, syncThemeState)
       window.removeEventListener("storage", handleStorage)
     }
-  }, [])
+  }, [themeSettings.fontSizePreset, themeSettings.preset])
 
   function handleThemeSelect(preference: ThemePreference) {
     setTheme(preference)
@@ -142,10 +140,12 @@ export function ThemeToggle() {
   const currentTheme: ThemePreference = mounted && (theme === "light" || theme === "dark" || theme === "system")
     ? theme
     : "light"
-  const currentPreset = mounted ? themePreset : "default"
+  const currentPreset = mounted ? themePreset : themeSettings.preset
   const currentMeta = themeMeta[currentTheme]
   const CurrentIcon = currentMeta.icon
-  const currentPresetMeta = getThemePresetDisplayMeta(currentPreset, readStoredCustomThemeConfig())
+  const currentPresetMeta = getThemePresetDisplayMeta(currentPreset, readStoredCustomThemeConfig(), themeSettings)
+  const themePresetOptions = Object.entries(themeSettings.themePresets) as Array<[BuiltInThemePreset, (typeof themeSettings.themePresets)[BuiltInThemePreset]]>
+  const fontSizePresetOptions = Object.entries(themeSettings.fontSizePresets) as Array<[FontSizePreset, (typeof themeSettings.fontSizePresets)[FontSizePreset]]>
 
   return (
     <div ref={menuRef} className="relative">

@@ -353,11 +353,11 @@ export async function getCommentsByPostId(
       },
     ): SiteCommentReplyItem => {
       const replyVipState = getVipState(comment.user)
-      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.userId === viewer.postAuthorId && comment.useAnonymousIdentity)
-      const isVisiblePostAuthor = Boolean(comment.userId === viewer?.postAuthorId && (!viewer?.postIsAnonymous || comment.useAnonymousIdentity))
+      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.useAnonymousIdentity)
+      const isVisiblePostAuthor = Boolean(comment.userId === viewer?.postAuthorId && !displayAsAnonymous)
       const displayIdentity = displayAsAnonymous ? viewer?.anonymousPostAuthor : null
       const anonymousCommentIdentity = getAnonymousCommentIdentity(displayIdentity)
-      const replyToAuthor = viewer?.postIsAnonymous && comment.replyToUser?.id === viewer.postAuthorId
+      const replyToAuthor = viewer?.postIsAnonymous && comment.replyToComment?.useAnonymousIdentity
         ? (viewer.anonymousPostAuthor?.name ?? viewer.anonymousPostAuthor?.username ?? "匿名用户")
         : (comment.replyToUser ? comment.replyToUser.nickname ?? comment.replyToUser.username : undefined)
 
@@ -395,12 +395,20 @@ export async function getCommentsByPostId(
         replyToCommentExcerpt: extra?.replyToCommentExcerpt,
         replyToCommentPage: extra?.replyToCommentPage,
         flatFloor: extra?.flatFloor,
+        tipping: {
+          totalCount: comment.tipCount,
+          totalPoints: comment.tipTotalPoints,
+          usedCount: 0,
+          giftStats: [],
+          recentGiftEvents: [],
+          topSupporters: [],
+        },
       }
     }
 
     const mapRootCommentItem = (comment: RawCommentRecord, floor: number, replies: SiteCommentReplyItem[] = []): SiteCommentItem => {
-      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.userId === viewer.postAuthorId && comment.useAnonymousIdentity)
-      const isVisiblePostAuthor = Boolean(comment.userId === viewer?.postAuthorId && (!viewer?.postIsAnonymous || comment.useAnonymousIdentity))
+      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.useAnonymousIdentity)
+      const isVisiblePostAuthor = Boolean(comment.userId === viewer?.postAuthorId && !displayAsAnonymous)
       const displayIdentity = displayAsAnonymous ? viewer?.anonymousPostAuthor : null
       const anonymousCommentIdentity = getAnonymousCommentIdentity(displayIdentity)
 
@@ -445,7 +453,7 @@ export async function getCommentsByPostId(
     }
 
     const getCommentDisplayAuthor = (comment: Pick<RawCommentRecord, "userId" | "useAnonymousIdentity" | "user">) => {
-      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.userId === viewer?.postAuthorId && comment.useAnonymousIdentity)
+      const displayAsAnonymous = Boolean(viewer?.postIsAnonymous && comment.useAnonymousIdentity)
       if (displayAsAnonymous) {
         return viewer?.anonymousPostAuthor?.name ?? viewer?.anonymousPostAuthor?.username ?? "匿名用户"
       }

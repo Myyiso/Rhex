@@ -115,9 +115,9 @@ export function ForumPostListItem({
 
   return (
     <div className={cn(
-      compactFirstItem ? "flex gap-2.5 pb-2.5 sm:gap-3" : "flex gap-2.5 py-2.5 sm:gap-3",
+      compactFirstItem ? "flex gap-2.5 pb-3 sm:gap-3" : "flex gap-2.5 py-3 sm:gap-3",
       hideDivider ? "border-b-0" : "border-b last:border-b-0",
-      " px-1.5 transition-all duration-150 hover:bg-accent hover:shadow-xs sm:px-2.5",
+      "px-1.5 transition-all duration-150 hover:bg-accent hover:shadow-xs sm:px-3",
     )}>
       <UserProfilePreviewCardTrigger
         username={item.authorUsername}
@@ -168,7 +168,7 @@ export function ForumPostListItem({
           </PostListLink>
         </div>
 
-        <div className={cn("mt-1 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground sm:mt-1.5 sm:gap-1.5 sm:text-[11px]", isRestrictedAuthor && "grayscale")}>
+        <div className={cn("mt-1.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground sm:gap-1.5 sm:text-[11px]", isRestrictedAuthor && "grayscale")}>
           {showBoard && item.boardSlug ? (
             <>
               <Link href={`/boards/${item.boardSlug}`} className="flex items-center gap-1 font-semibold hover:underline">

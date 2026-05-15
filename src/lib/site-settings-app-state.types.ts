@@ -1,5 +1,6 @@
 import { parseNonNegativeSafeInteger } from "@/lib/shared/safe-integer"
 import type { RegistrationEmailTemplateSettings } from "@/lib/email-template-settings"
+import type { ThemeCustomizationSettings } from "@/lib/theme"
 import type { PostListLoadMode } from "@/lib/post-list-load-mode"
 import type { CheckInRewardRange, CheckInRewardSettings } from "@/lib/check-in-reward"
 import type { VipNameColors } from "@/lib/vip-name-colors"
@@ -161,6 +162,8 @@ export interface FooterCopyrightSettings {
 export interface SiteBrandingSettings {
   iconPath: string
 }
+
+export type SiteThemeCustomizationSettings = ThemeCustomizationSettings
 
 export interface RegisterNicknameLengthSettings {
   minLength: number

@@ -26,6 +26,129 @@ end
 return 0
 `
 
+const POST_VIEW_CLAIM_BATCH_LUA = `
+local limit = math.max(1, tonumber(ARGV[1]) or 1)
+local moved = {}
+local movedCount = 0
+local cursor = "0"
+
+repeat
+  local page = redis.call("hscan", KEYS[1], cursor, "COUNT", limit)
+  cursor = page[1]
+  local values = page[2]
+  for i = 1, #values, 2 do
+    if movedCount >= limit then
+      break
+    end
+    redis.call("hset", KEYS[2], values[i], values[i + 1])
+    redis.call("hdel", KEYS[1], values[i])
+    table.insert(moved, values[i])
+    table.insert(moved, values[i + 1])
+    movedCount = movedCount + 1
+  end
+until movedCount >= limit or cursor == "0"
+
+return moved
+`
+
+const POST_VIEW_RESTORE_BATCH_LUA = `
+local values = redis.call("hgetall", KEYS[2])
+for i = 1, #values, 2 do
+  redis.call("hincrby", KEYS[1], values[i], values[i + 1])
+end
+redis.call("del", KEYS[2])
+return #values / 2
+`
+
+const RSS_QUEUE_CLAIM_PENDING_LUA = `
+local itemsKey = KEYS[1]
+local pendingStatusKey = KEYS[2]
+local processingStatusKey = KEYS[3]
+local recordId = ARGV[1]
+local workerId = ARGV[2]
+local startedAt = ARGV[3]
+local score = ARGV[4]
+
+local currentValue = redis.call("HGET", itemsKey, recordId)
+if not currentValue then
+  return nil
+end
+
+local ok, record = pcall(cjson.decode, currentValue)
+if not ok or type(record) ~= "table" or record.status ~= "PENDING" then
+  return nil
+end
+
+record.backgroundJobId = cjson.null
+record.status = "PROCESSING"
+record.startedAt = startedAt
+record.attemptCount = (tonumber(record.attemptCount) or 0) + 1
+record.workerId = workerId
+record.leaseExpiresAt = cjson.null
+record.updatedAt = startedAt
+
+local nextValue = cjson.encode(record)
+redis.call("HSET", itemsKey, recordId, nextValue)
+redis.call("ZREM", pendingStatusKey, recordId)
+redis.call("ZADD", processingStatusKey, score, recordId)
+
+return nextValue
+`
+
+const BACKGROUND_JOB_ENQUEUE_DELAYED_LUA = `
+redis.call("ZADD", KEYS[1], ARGV[1], ARGV[3])
+redis.call("HSET", KEYS[2], ARGV[2], cjson.encode({
+  jobId = ARGV[2],
+  location = "delayed",
+  encodedJob = ARGV[3],
+}))
+return 1
+`
+
+const BACKGROUND_JOB_PUSH_TO_STREAM_LUA = `
+local entryId = redis.call("XADD", KEYS[1], "MAXLEN", "~", ARGV[3], "*", "job", ARGV[2])
+redis.call("HSET", KEYS[2], ARGV[1], cjson.encode({
+  jobId = ARGV[1],
+  location = "stream",
+  entryId = entryId,
+}))
+return entryId
+`
+
+const BACKGROUND_JOB_PROMOTE_DUE_DELAYED_LUA = `
+local delayedKey = KEYS[1]
+local streamKey = KEYS[2]
+local indexKey = KEYS[3]
+local now = ARGV[1]
+local limit = tonumber(ARGV[2])
+local maxlen = ARGV[3]
+
+local jobs = redis.call("ZRANGEBYSCORE", delayedKey, "-inf", now, "LIMIT", 0, limit)
+
+for _, job in ipairs(jobs) do
+  redis.call("ZREM", delayedKey, job)
+  local entryId = redis.call("XADD", streamKey, "MAXLEN", "~", maxlen, "*", "job", job)
+  local ok, decoded = pcall(cjson.decode, job)
+  if ok and type(decoded) == "table" and type(decoded.id) == "string" then
+    redis.call("HSET", indexKey, decoded.id, cjson.encode({
+      jobId = decoded.id,
+      location = "stream",
+      entryId = entryId,
+    }))
+  end
+end
+
+return #jobs
+`
+
+const AI_DAILY_INCR_WITH_EXPIRE_LUA = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`
+
 const REGISTERED_LUA_SYMBOL = Symbol.for("rhex.redis.luaRegistered")
 
 type LuaAwareRedis = Redis & { [REGISTERED_LUA_SYMBOL]?: boolean }
@@ -38,6 +161,13 @@ function registerRedisLuaCommands(client: Redis): Redis {
   marked[REGISTERED_LUA_SYMBOL] = true
   client.defineCommand("leaseRelease", { numberOfKeys: 1, lua: LEASE_RELEASE_LUA })
   client.defineCommand("leaseRenew", { numberOfKeys: 1, lua: LEASE_RENEW_LUA })
+  client.defineCommand("postViewClaimBatch", { numberOfKeys: 2, lua: POST_VIEW_CLAIM_BATCH_LUA })
+  client.defineCommand("postViewRestoreBatch", { numberOfKeys: 2, lua: POST_VIEW_RESTORE_BATCH_LUA })
+  client.defineCommand("rssQueueClaimPending", { numberOfKeys: 3, lua: RSS_QUEUE_CLAIM_PENDING_LUA })
+  client.defineCommand("backgroundJobEnqueueDelayed", { numberOfKeys: 2, lua: BACKGROUND_JOB_ENQUEUE_DELAYED_LUA })
+  client.defineCommand("backgroundJobPushToStream", { numberOfKeys: 2, lua: BACKGROUND_JOB_PUSH_TO_STREAM_LUA })
+  client.defineCommand("backgroundJobPromoteDueDelayed", { numberOfKeys: 3, lua: BACKGROUND_JOB_PROMOTE_DUE_DELAYED_LUA })
+  client.defineCommand("aiDailyIncrWithExpire", { numberOfKeys: 1, lua: AI_DAILY_INCR_WITH_EXPIRE_LUA })
   return client
 }
 

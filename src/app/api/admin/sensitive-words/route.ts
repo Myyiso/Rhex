@@ -85,10 +85,29 @@ export const PUT = createAdminRouteHandler(async ({ request, adminUser }) => {
 })
 
 export const DELETE = createAdminRouteHandler(async ({ request, adminUser }) => {
+  const requestIp = getRequestIp(request)
   const body = await readJsonBody(request)
+  if (Array.isArray(body.ids)) {
+    const ids = [...new Set(body.ids.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()))]
+
+    if (ids.length === 0) {
+      apiError(400, "\u8bf7\u9009\u62e9\u8981\u5220\u9664\u7684\u89c4\u5219")
+    }
+
+    const result = await prisma.sensitiveWord.deleteMany({
+      where: {
+        id: {
+          in: ids,
+        },
+      },
+    })
+    invalidateSensitiveWordRulesCache()
+    await writeAdminLog(adminUser.id, "sensitiveWord.delete", "CONFIG", "batch", `\u5220\u9664\u654f\u611f\u8bcd\u89c4\u5219 ${result.count} \u6761`, requestIp)
+    return apiSuccess({ deletedCount: result.count }, `\u5df2\u5220\u9664 ${result.count} \u6761\u89c4\u5219`)
+  }
   const id = requireStringField(body, "id", "缺少规则ID")
 
-  await prisma.sensitiveWord.delete({ where: { id } })
+  await prisma.sensitiveWord.deleteMany({ where: { id: { in: [id] } } })
   invalidateSensitiveWordRulesCache()
   await writeAdminLog(adminUser.id, "sensitiveWord.delete", "CONFIG", id, "删除敏感词规则")
   return apiSuccess(undefined, "规则已删除")

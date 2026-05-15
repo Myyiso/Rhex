@@ -18,6 +18,7 @@ const THEME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 export type ThemeMode = "light" | "dark"
 export type ThemePreference = ThemeMode | "system"
 export type FontSizePreset = "compact" | "normal" | "relaxed"
+export type BuiltInThemePreset = keyof typeof THEME_PRESETS
 export type ThemePreset = keyof typeof THEME_PRESETS | "custom"
 type ThemeVariableName = "background" | "foreground" | "card" | "card-foreground" | "primary" | "primary-foreground" | "secondary" | "secondary-foreground" | "muted" | "muted-foreground" | "accent" | "accent-foreground" | "border" | "ring"
 type ThemeVariableMap = Partial<Record<ThemeVariableName, string>>
@@ -30,7 +31,7 @@ type ThemeViewTransitionDocument = Document & {
 }
 type ThemeSwitchTransitionDirection = "left-to-right" | "right-to-left"
 
-interface CustomThemeModeConfig {
+export interface CustomThemeModeConfig {
   primary: string
   background: string
   card: string
@@ -50,7 +51,7 @@ export interface CustomThemeConfig {
   customCss: string
 }
 
-type ThemePresetDefinition = {
+export type ThemePresetDefinition = {
   label: string
   description: string
   preview: [string, string, string]
@@ -291,13 +292,27 @@ export const FONT_SIZE_PRESETS = {
   },
 } as const satisfies Record<FontSizePreset, { label: string; size: string; preview: string }>
 
-const THEME_PRESET_SCRIPT_VALUES = Object.fromEntries(
-  Object.entries(THEME_PRESETS).map(([key, preset]) => [key, preset.values]),
-) as Record<string, (typeof THEME_PRESETS)[keyof typeof THEME_PRESETS]["values"]>
+export type FontSizePresetDefinition = { label: string; size: string; preview: string }
 
-const FONT_SIZE_PRESET_SCRIPT_VALUES = Object.fromEntries(
-  Object.entries(FONT_SIZE_PRESETS).map(([key, preset]) => [key, preset.size]),
-) as Record<FontSizePreset, string>
+export interface EditableThemePresetDefinition {
+  label: string
+  description: string
+  light: CustomThemeModeConfig
+  dark: CustomThemeModeConfig
+}
+
+export interface ThemeCustomizationSettings {
+  defaultThemePreset: BuiltInThemePreset
+  defaultFontSizePreset: FontSizePreset
+  fontSizePresets: Record<FontSizePreset, FontSizePresetDefinition>
+  themePresets: Record<BuiltInThemePreset, EditableThemePresetDefinition>
+}
+
+export interface ThemeRuntimeSettings extends ThemeDefaultSettings {
+  customization: ThemeCustomizationSettings
+  fontSizePresets: Record<FontSizePreset, FontSizePresetDefinition>
+  themePresets: Record<BuiltInThemePreset, ThemePresetDefinition>
+}
 
 export const DEFAULT_CUSTOM_THEME_CONFIG: CustomThemeConfig = {
   light: {
@@ -365,13 +380,13 @@ function normalizeCustomThemeFontFamily(value: unknown, fallback: string) {
 
 function normalizeCustomThemeFontSize(value: unknown, fallback: string) {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return `${Math.max(12, Math.min(24, Math.round(value)))}px`
+    return `${Math.max(8, Math.min(32, Math.round(value)))}px`
   }
 
   const normalized = String(value ?? "").trim().toLowerCase()
   const numeric = normalized.endsWith("px") ? Number.parseFloat(normalized.slice(0, -2)) : Number.parseFloat(normalized)
   if (Number.isFinite(numeric)) {
-    return `${Math.max(12, Math.min(24, Math.round(numeric)))}px`
+    return `${Math.max(8, Math.min(32, Math.round(numeric)))}px`
   }
 
   return fallback
@@ -817,7 +832,11 @@ export function resetCustomThemeConfig() {
   saveCustomThemeConfig(DEFAULT_CUSTOM_THEME_CONFIG)
 }
 
-export function getThemeInitScript() {
+export function getThemeInitScript(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS) {
+  const runtime = resolveThemeRuntimeSettings(settings)
+  const defaultPreset = resolveBuiltInThemePreset(runtime.preset)
+  const defaultFontSizePreset = resolveStoredFontSizePreset(runtime.fontSizePreset)
+
   return `
     (function () {
       try {
@@ -827,8 +846,8 @@ export function getThemeInitScript() {
         var fontSizePreset = window.localStorage.getItem(${JSON.stringify(FONT_SIZE_PRESET_STORAGE_KEY)});
         var customThemeConfigRaw = window.localStorage.getItem(${JSON.stringify(CUSTOM_THEME_STORAGE_KEY)});
         var customThemeVariablesRaw = window.localStorage.getItem(${JSON.stringify(CUSTOM_THEME_VARIABLES_STORAGE_KEY)});
-        var presetValuesMap = ${JSON.stringify(THEME_PRESET_SCRIPT_VALUES)};
-        var fontSizeValuesMap = ${JSON.stringify(FONT_SIZE_PRESET_SCRIPT_VALUES)};
+        var presetValuesMap = ${JSON.stringify(getThemePresetValuesMap(runtime))};
+        var fontSizeValuesMap = ${JSON.stringify(getFontSizePresetValuesMap(runtime))};
         var variableNames = ${JSON.stringify(THEME_VARIABLE_NAMES)};
         var cookieMaxAge = ${THEME_COOKIE_MAX_AGE};
         var syncCookie = function (name, value) {
@@ -842,13 +861,15 @@ export function getThemeInitScript() {
         var resolvedMode = resolvedPreference === "system"
           ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
           : resolvedPreference;
+        var defaultPreset = ${JSON.stringify(defaultPreset)};
+        var defaultFontSizePreset = ${JSON.stringify(defaultFontSizePreset)};
         var resolvedPreset = preset === "custom"
           ? "custom"
           : preset === "mono"
             ? "default"
             : preset === "rose"
               ? "sea"
-              : (preset && presetValuesMap[preset] ? preset : "default");
+              : (preset && presetValuesMap[preset] ? preset : defaultPreset);
 
         syncCookie(${JSON.stringify(THEME_STORAGE_KEY)}, resolvedPreference);
         syncCookie(${JSON.stringify(THEME_PRESET_STORAGE_KEY)}, resolvedPreset);
@@ -926,7 +947,7 @@ export function getThemeInitScript() {
             : {};
           var resolvedFontSizePreset = fontSizePreset && fontSizeValuesMap[fontSizePreset]
             ? fontSizePreset
-            : "normal";
+            : defaultFontSizePreset;
 
           applyVariableMap(presetValues);
           syncCookie(${JSON.stringify(FONT_SIZE_PRESET_STORAGE_KEY)}, resolvedFontSizePreset);
@@ -960,13 +981,280 @@ export const DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT: ThemeLocalSettingsSnapshot =
   customThemeConfig: DEFAULT_CUSTOM_THEME_CONFIG,
 }
 
+export interface ThemeDefaultSettings {
+  preset: BuiltInThemePreset
+  fontSizePreset: FontSizePreset
+}
+
+export const DEFAULT_THEME_DEFAULT_SETTINGS: ThemeDefaultSettings = {
+  preset: "default",
+  fontSizePreset: "normal",
+}
+
+const THEME_PRESET_SOURCE_CONFIGS = {
+  default: {
+    label: THEME_PRESETS.default.label,
+    description: THEME_PRESETS.default.description,
+    light: {
+      primary: "#1f1f1f",
+      background: "#ffffff",
+      card: "#ffffff",
+      accent: "#f0f0f0",
+      border: "#e0e0e0",
+    },
+    dark: {
+      primary: "#f5f5f5",
+      background: "#000000",
+      card: "#141414",
+      accent: "#292929",
+      border: "#383838",
+    },
+  },
+  sea: {
+    label: THEME_PRESETS.sea.label,
+    description: THEME_PRESETS.sea.description,
+    light: {
+      primary: "#3b82f6",
+      background: "#f8fafc",
+      card: "#ffffff",
+      accent: "#e8f0fb",
+      border: "#d7dee8",
+    },
+    dark: {
+      primary: "#60a5fa",
+      background: "#0b1220",
+      card: "#111827",
+      accent: "#1d2b44",
+      border: "#2f3d55",
+    },
+  },
+  jade: {
+    label: THEME_PRESETS.jade.label,
+    description: THEME_PRESETS.jade.description,
+    light: {
+      primary: "#10b981",
+      background: "#f7fbf8",
+      card: "#ffffff",
+      accent: "#e8f6ef",
+      border: "#d6eadf",
+    },
+    dark: {
+      primary: "#34d399",
+      background: "#07130f",
+      card: "#0f1f19",
+      accent: "#173329",
+      border: "#245143",
+    },
+  },
+  amber: {
+    label: THEME_PRESETS.amber.label,
+    description: THEME_PRESETS.amber.description,
+    light: {
+      primary: "#f97316",
+      background: "#fffaf3",
+      card: "#ffffff",
+      accent: "#fff1dd",
+      border: "#f3dcc2",
+    },
+    dark: {
+      primary: "#fb923c",
+      background: "#17100a",
+      card: "#21170f",
+      accent: "#372313",
+      border: "#4d321b",
+    },
+  },
+  graphite: {
+    label: THEME_PRESETS.graphite.label,
+    description: THEME_PRESETS.graphite.description,
+    light: {
+      primary: "#334155",
+      background: "#f8fafc",
+      card: "#ffffff",
+      accent: "#eef2f7",
+      border: "#dbe3ee",
+    },
+    dark: {
+      primary: "#cbd5e1",
+      background: "#0f172a",
+      card: "#111827",
+      accent: "#1e293b",
+      border: "#334155",
+    },
+  },
+} as const satisfies Record<BuiltInThemePreset, EditableThemePresetDefinition>
+
+export const DEFAULT_THEME_CUSTOMIZATION_SETTINGS: ThemeCustomizationSettings = {
+  defaultThemePreset: DEFAULT_THEME_DEFAULT_SETTINGS.preset,
+  defaultFontSizePreset: DEFAULT_THEME_DEFAULT_SETTINGS.fontSizePreset,
+  fontSizePresets: FONT_SIZE_PRESETS,
+  themePresets: THEME_PRESET_SOURCE_CONFIGS,
+}
+
+export const DEFAULT_THEME_RUNTIME_SETTINGS: ThemeRuntimeSettings = buildThemeRuntimeSettings(
+  DEFAULT_THEME_CUSTOMIZATION_SETTINGS,
+)
+
+export function resolveBuiltInThemePreset(value: string | null | undefined): BuiltInThemePreset {
+  if (value === "mono") {
+    return "default"
+  }
+
+  if (value === "rose") {
+    return "sea"
+  }
+
+  if (value && value in THEME_PRESETS) {
+    return value as BuiltInThemePreset
+  }
+
+  return DEFAULT_THEME_DEFAULT_SETTINGS.preset
+}
+
+export function normalizeFontSizePresetDefinition(value: unknown, fallback: FontSizePresetDefinition): FontSizePresetDefinition {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  const label = typeof candidate.label === "string" && candidate.label.trim()
+    ? candidate.label.trim().slice(0, 24)
+    : fallback.label
+  const preview = typeof candidate.preview === "string" && candidate.preview.trim()
+    ? candidate.preview.trim().slice(0, 4)
+    : fallback.preview
+
+  return {
+    label,
+    preview,
+    size: normalizeCustomThemeFontSize(candidate.size, fallback.size),
+  }
+}
+
+export function normalizeEditableThemePresetDefinition(value: unknown, fallback: EditableThemePresetDefinition): EditableThemePresetDefinition {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  const label = typeof candidate.label === "string" && candidate.label.trim()
+    ? candidate.label.trim().slice(0, 24)
+    : fallback.label
+  const description = typeof candidate.description === "string" && candidate.description.trim()
+    ? candidate.description.trim().slice(0, 120)
+    : fallback.description
+
+  return {
+    label,
+    description,
+    light: normalizeCustomThemeModeConfig(candidate.light, fallback.light),
+    dark: normalizeCustomThemeModeConfig(candidate.dark, fallback.dark),
+  }
+}
+
+export function resolveThemeCustomizationSettings(value: unknown): ThemeCustomizationSettings {
+  const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  const rawFontSizePresets = candidate.fontSizePresets && typeof candidate.fontSizePresets === "object"
+    ? candidate.fontSizePresets as Record<string, unknown>
+    : {}
+  const rawThemePresets = candidate.themePresets && typeof candidate.themePresets === "object"
+    ? candidate.themePresets as Record<string, unknown>
+    : {}
+
+  return {
+    defaultThemePreset: resolveBuiltInThemePreset(typeof candidate.defaultThemePreset === "string" ? candidate.defaultThemePreset : null),
+    defaultFontSizePreset: resolveStoredFontSizePreset(typeof candidate.defaultFontSizePreset === "string" ? candidate.defaultFontSizePreset : null),
+    fontSizePresets: {
+      compact: normalizeFontSizePresetDefinition(rawFontSizePresets.compact, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.fontSizePresets.compact),
+      normal: normalizeFontSizePresetDefinition(rawFontSizePresets.normal, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.fontSizePresets.normal),
+      relaxed: normalizeFontSizePresetDefinition(rawFontSizePresets.relaxed, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.fontSizePresets.relaxed),
+    },
+    themePresets: {
+      default: normalizeEditableThemePresetDefinition(rawThemePresets.default, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.themePresets.default),
+      sea: normalizeEditableThemePresetDefinition(rawThemePresets.sea, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.themePresets.sea),
+      jade: normalizeEditableThemePresetDefinition(rawThemePresets.jade, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.themePresets.jade),
+      amber: normalizeEditableThemePresetDefinition(rawThemePresets.amber, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.themePresets.amber),
+      graphite: normalizeEditableThemePresetDefinition(rawThemePresets.graphite, DEFAULT_THEME_CUSTOMIZATION_SETTINGS.themePresets.graphite),
+    },
+  }
+}
+
+export function buildThemePresetDefinition(input: EditableThemePresetDefinition): ThemePresetDefinition {
+  return {
+    label: input.label,
+    description: input.description,
+    preview: [
+      hexToHslValue(input.light.primary),
+      hexToHslValue(input.light.background),
+      hexToHslValue(input.light.border),
+    ],
+    values: buildCustomThemeVariables({
+      light: input.light,
+      dark: input.dark,
+      typography: DEFAULT_CUSTOM_THEME_CONFIG.typography,
+      customCss: "",
+    }),
+  }
+}
+
+export function buildThemeRuntimeSettings(settings: ThemeCustomizationSettings): ThemeRuntimeSettings {
+  return {
+    preset: settings.defaultThemePreset,
+    fontSizePreset: settings.defaultFontSizePreset,
+    customization: settings,
+    fontSizePresets: settings.fontSizePresets,
+    themePresets: {
+      default: buildThemePresetDefinition(settings.themePresets.default),
+      sea: buildThemePresetDefinition(settings.themePresets.sea),
+      jade: buildThemePresetDefinition(settings.themePresets.jade),
+      amber: buildThemePresetDefinition(settings.themePresets.amber),
+      graphite: buildThemePresetDefinition(settings.themePresets.graphite),
+    },
+  }
+}
+
+function resolveThemeRuntimeSettings(settings?: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings): ThemeRuntimeSettings {
+  if (settings && "themePresets" in settings && "fontSizePresets" in settings) {
+    return settings as ThemeRuntimeSettings
+  }
+
+  if (settings && "defaultThemePreset" in settings && "defaultFontSizePreset" in settings) {
+    return buildThemeRuntimeSettings(resolveThemeCustomizationSettings(settings))
+  }
+
+  if (settings && "preset" in settings && "fontSizePreset" in settings) {
+    return buildThemeRuntimeSettings(resolveThemeCustomizationSettings({
+      ...DEFAULT_THEME_CUSTOMIZATION_SETTINGS,
+      defaultThemePreset: settings.preset,
+      defaultFontSizePreset: settings.fontSizePreset,
+    }))
+  }
+
+  return DEFAULT_THEME_RUNTIME_SETTINGS
+}
+
+function getThemePresetValuesMap(settings?: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings) {
+  const runtime = resolveThemeRuntimeSettings(settings)
+
+  return Object.fromEntries(
+    Object.entries(runtime.themePresets).map(([key, preset]) => [key, preset.values]),
+  ) as Record<string, ThemePresetDefinition["values"]>
+}
+
+function getFontSizePresetValuesMap(settings?: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings) {
+  return Object.fromEntries(
+    Object.entries(resolveThemeRuntimeSettings(settings).fontSizePresets).map(([key, preset]) => [key, preset.size]),
+  ) as Record<FontSizePreset, string>
+}
+
+export function getThemeDefaultsFromRuntime(settings: ThemeRuntimeSettings): ThemeDefaultSettings {
+  return {
+    preset: settings.preset,
+    fontSizePreset: settings.fontSizePreset,
+  }
+}
+
 let cachedThemeLocalSettingsSnapshot: ThemeLocalSettingsSnapshot = DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
 let themeLocalSettingsCacheHydrated = false
 
-function readThemeLocalSettingsSnapshotFromStorage(): ThemeLocalSettingsSnapshot {
+export function readThemeLocalSettingsSnapshotFromStorage(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS): ThemeLocalSettingsSnapshot {
   if (!isBrowser()) {
     return DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
   }
+
+  const runtime = resolveThemeRuntimeSettings(settings)
 
   const preferenceFromCookie = readThemeCookieValue(THEME_STORAGE_KEY)
   const presetFromCookie = readThemeCookieValue(THEME_PRESET_STORAGE_KEY)
@@ -1000,8 +1288,8 @@ function readThemeLocalSettingsSnapshotFromStorage(): ThemeLocalSettingsSnapshot
 
   return {
     preference: resolveStoredThemePreference(preference),
-    preset: resolveStoredThemePreset(preset),
-    fontSizePreset: resolveStoredFontSizePreset(fontSizePreset),
+    preset: resolveStoredThemePreset(preset ?? runtime.preset, runtime.preset),
+    fontSizePreset: resolveStoredFontSizePreset(fontSizePreset ?? runtime.fontSizePreset),
     customThemeConfig: readStoredCustomThemeConfig(),
   }
 }
@@ -1011,13 +1299,13 @@ function updateThemeLocalSettingsSnapshot(nextSnapshot: ThemeLocalSettingsSnapsh
   themeLocalSettingsCacheHydrated = true
 }
 
-export function readThemeLocalSettingsSnapshot(): ThemeLocalSettingsSnapshot {
+export function readThemeLocalSettingsSnapshot(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS): ThemeLocalSettingsSnapshot {
   if (!isBrowser()) {
     return DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
   }
 
   if (!themeLocalSettingsCacheHydrated) {
-    updateThemeLocalSettingsSnapshot(readThemeLocalSettingsSnapshotFromStorage())
+    updateThemeLocalSettingsSnapshot(readThemeLocalSettingsSnapshotFromStorage(settings))
   }
 
   return cachedThemeLocalSettingsSnapshot
@@ -1053,7 +1341,11 @@ export function subscribeThemeSettings(onStoreChange: () => void) {
   }
 }
 
-export function getThemePresetDisplayMeta(preset: ThemePreset, customThemeConfig?: CustomThemeConfig) {
+export function getThemePresetDisplayMeta(
+  preset: ThemePreset,
+  customThemeConfig?: CustomThemeConfig,
+  settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS,
+) {
   if (preset === "custom") {
     const resolvedCustomTheme = customThemeConfig ?? readStoredCustomThemeConfig()
 
@@ -1068,7 +1360,7 @@ export function getThemePresetDisplayMeta(preset: ThemePreset, customThemeConfig
     }
   }
 
-  return THEME_PRESETS[preset]
+  return resolveThemeRuntimeSettings(settings).themePresets[preset]
 }
 
 export function resolveStoredThemePreference(value: string | null | undefined): ThemePreference {
@@ -1087,24 +1379,15 @@ export function resolveThemeMode(preference: ThemePreference): ThemeMode {
   return preference === "system" ? resolveSystemTheme() : preference
 }
 
-export function resolveStoredThemePreset(value: string | null | undefined): ThemePreset {
+export function resolveStoredThemePreset(
+  value: string | null | undefined,
+  fallback: BuiltInThemePreset = DEFAULT_THEME_DEFAULT_SETTINGS.preset,
+): ThemePreset {
   if (value === "custom") {
     return "custom"
   }
 
-  if (value === "mono") {
-    return "default"
-  }
-
-  if (value === "rose") {
-    return "sea"
-  }
-
-  if (value && value in THEME_PRESETS) {
-    return value as ThemePreset
-  }
-
-  return "default"
+  return resolveBuiltInThemePreset(value ?? fallback)
 }
 
 export function resolveStoredFontSizePreset(value: string | null | undefined): FontSizePreset {
@@ -1123,10 +1406,14 @@ export interface ThemeDocumentProps {
   rootStyle: Record<string, string>
 }
 
-export function resolveThemeDocumentPropsFromCookieString(cookieString: string | null | undefined): ThemeDocumentProps {
+export function resolveThemeDocumentPropsFromCookieString(
+  cookieString: string | null | undefined,
+  settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS,
+): ThemeDocumentProps {
+  const runtime = resolveThemeRuntimeSettings(settings)
   const resolvedPreference = resolveStoredThemePreference(readCookieValue(cookieString ?? "", THEME_STORAGE_KEY))
-  const resolvedPreset = resolveStoredThemePreset(readCookieValue(cookieString ?? "", THEME_PRESET_STORAGE_KEY))
-  const resolvedFontSizePreset = resolveStoredFontSizePreset(readCookieValue(cookieString ?? "", FONT_SIZE_PRESET_STORAGE_KEY))
+  const resolvedPreset = resolveStoredThemePreset(readCookieValue(cookieString ?? "", THEME_PRESET_STORAGE_KEY), runtime.preset)
+  const resolvedFontSizePreset = resolveStoredFontSizePreset(readCookieValue(cookieString ?? "", FONT_SIZE_PRESET_STORAGE_KEY) ?? runtime.fontSizePreset)
   const requiresBootGuard = resolvedPreference === "system"
     || resolvedPreset === "custom"
     || !readCookieValue(cookieString ?? "", THEME_STORAGE_KEY)
@@ -1145,9 +1432,9 @@ export function resolveThemeDocumentPropsFromCookieString(cookieString: string |
 
   const rootStyle: Record<string, string> = {
     colorScheme: resolvedPreference,
-    fontSize: FONT_SIZE_PRESETS[resolvedFontSizePreset].size,
+    fontSize: runtime.fontSizePresets[resolvedFontSizePreset].size,
   }
-  const presetValues = (THEME_PRESETS[resolvedPreset as keyof typeof THEME_PRESETS]?.values[resolvedPreference] ?? {}) as ThemeVariableMap
+  const presetValues = (runtime.themePresets[resolvedPreset]?.values[resolvedPreference] ?? {}) as ThemeVariableMap
 
   for (const variableName of THEME_VARIABLE_NAMES) {
     const variableValue = presetValues[variableName]
@@ -1165,11 +1452,12 @@ export function resolveThemeDocumentPropsFromCookieString(cookieString: string |
   }
 }
 
-function applyThemePreset(preset: ThemePreset, mode: ThemeMode) {
+function applyThemePreset(preset: ThemePreset, mode: ThemeMode, settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS) {
   const root = document.documentElement
+  const runtime = resolveThemeRuntimeSettings(settings)
   const presetValues = preset === "custom"
     ? readStoredCustomThemeVariables()[mode]
-    : (THEME_PRESETS[preset]?.values[mode] ?? {}) as ThemeVariableMap
+    : (runtime.themePresets[preset]?.values[mode] ?? {}) as ThemeVariableMap
 
   root.dataset.themePreset = preset
   for (const variableName of THEME_VARIABLE_NAMES) {
@@ -1182,10 +1470,11 @@ function applyThemePreset(preset: ThemePreset, mode: ThemeMode) {
   }
 }
 
-function applyFontSizePreset(fontSizePreset: FontSizePreset) {
+function applyFontSizePreset(fontSizePreset: FontSizePreset, settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS) {
   const root = document.documentElement
+  const runtime = resolveThemeRuntimeSettings(settings)
   root.dataset.fontSizePreset = fontSizePreset
-  root.style.fontSize = FONT_SIZE_PRESETS[fontSizePreset].size
+  root.style.fontSize = runtime.fontSizePresets[fontSizePreset].size
 }
 
 function applyCustomThemeTypography(config: CustomThemeConfig) {
@@ -1212,12 +1501,17 @@ function applyCustomThemeCss(config: CustomThemeConfig) {
   }
 }
 
-export function applyTheme(preference: ThemePreference, preset: ThemePreset = "default", fontSizePreset: FontSizePreset = "normal") {
+export function applyTheme(
+  preference: ThemePreference,
+  preset: ThemePreset = "default",
+  fontSizePreset: FontSizePreset = "normal",
+  settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS,
+) {
   const resolvedTheme = resolveThemeMode(preference)
   const root = document.documentElement
   root.classList.toggle("dark", resolvedTheme === "dark")
   root.style.colorScheme = resolvedTheme
-  applyThemePreset(preset, resolvedTheme)
+  applyThemePreset(preset, resolvedTheme, settings)
   if (preset === "custom") {
     const customThemeConfig = readStoredCustomThemeConfig()
     applyCustomThemeTypography(customThemeConfig)
@@ -1225,6 +1519,6 @@ export function applyTheme(preference: ThemePreference, preset: ThemePreset = "d
   } else {
     root.style.removeProperty("--theme-font-family")
     document.getElementById(CUSTOM_THEME_STYLE_ELEMENT_ID)?.remove()
-    applyFontSizePreset(fontSizePreset)
+    applyFontSizePreset(fontSizePreset, settings)
   }
 }

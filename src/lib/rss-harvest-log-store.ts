@@ -39,6 +39,7 @@ const RSS_EXECUTION_LOG_RETENTION_SECONDS = Math.max(
 )
 const RSS_EXECUTION_LOG_RETENTION_MS = RSS_EXECUTION_LOG_RETENTION_SECONDS * 1_000
 const RSS_EXECUTION_LOG_KEY_EXPIRE_SECONDS = RSS_EXECUTION_LOG_RETENTION_SECONDS * 2
+const REDIS_LOG_SCAN_PAGE_SIZE = 200
 
 function normalizeRequestedPage(value: number | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -89,6 +90,38 @@ function parseExecutionLog(value: string) {
     } satisfies RssExecutionLogRecord
   } catch {
     return null
+  }
+}
+
+async function scanRssExecutionLogMembers(
+  redis: ReturnType<typeof getRedis>,
+  options: {
+    reverse?: boolean
+    visit: (member: string) => boolean | Promise<boolean>
+  },
+) {
+  let start = 0
+
+  while (true) {
+    const stop = start + REDIS_LOG_SCAN_PAGE_SIZE - 1
+    const encodedItems = options.reverse
+      ? await redis.zrevrange(RSS_EXECUTION_LOG_KEY, start, stop).catch(() => [])
+      : await redis.zrange(RSS_EXECUTION_LOG_KEY, start, stop).catch(() => [])
+
+    if (!Array.isArray(encodedItems) || encodedItems.length === 0) {
+      return
+    }
+
+    for (const item of encodedItems) {
+      if (await options.visit(String(item))) {
+        return
+      }
+    }
+
+    if (encodedItems.length < REDIS_LOG_SCAN_PAGE_SIZE) {
+      return
+    }
+    start += REDIS_LOG_SCAN_PAGE_SIZE
   }
 }
 
@@ -217,14 +250,15 @@ export async function deleteRssExecutionLogsByRunIds(runIds: string[]) {
   const redis = getRedis()
 
   await connectRedisClient(redis)
-  const encodedItems = await redis.zrange(RSS_EXECUTION_LOG_KEY, 0, -1).catch(() => [])
-  if (!Array.isArray(encodedItems) || encodedItems.length === 0) {
-    return { count: 0 }
-  }
-
-  const matchedMembers = encodedItems.filter((item) => {
-    const parsed = parseExecutionLog(String(item))
-    return parsed ? targetIds.has(parsed.runId) : false
+  const matchedMembers: string[] = []
+  await scanRssExecutionLogMembers(redis, {
+    visit: (member) => {
+      const parsed = parseExecutionLog(member)
+      if (parsed && targetIds.has(parsed.runId)) {
+        matchedMembers.push(member)
+      }
+      return false
+    },
   })
 
   if (matchedMembers.length === 0) {
@@ -245,15 +279,19 @@ export async function findRssExecutionLogsForRunIds(runIds: string[]) {
 
   await connectRedisClient(redis)
   await pruneExecutionLogsWithRedis(redis, Date.now())
-  const encodedItems = await redis.zrevrange(RSS_EXECUTION_LOG_KEY, 0, -1).catch(() => [])
-  if (!Array.isArray(encodedItems)) {
-    return [] satisfies RssExecutionLogRecord[]
-  }
+  const matchedItems: RssExecutionLogRecord[] = []
+  await scanRssExecutionLogMembers(redis, {
+    reverse: true,
+    visit: (member) => {
+      const item = parseExecutionLog(member)
+      if (item && targetIds.has(item.runId)) {
+        matchedItems.push(item)
+      }
+      return false
+    },
+  })
 
-  return encodedItems
-    .map((item) => parseExecutionLog(String(item)))
-    .filter((item): item is RssExecutionLogRecord => Boolean(item))
-    .filter((item) => targetIds.has(item.runId))
+  return matchedItems
 }
 
 export function serializeRssExecutionLogDateTime(input: string) {

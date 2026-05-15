@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache"
 
 import { findCustomPageById } from "@/db/custom-page-queries"
 import { apiSuccess, createAdminRouteHandler, readJsonBody } from "@/lib/api-route"
+import { revalidateCustomPagesCache } from "@/lib/custom-pages"
 import {
   getAdminCustomPageList,
   removeAdminCustomPage,
@@ -37,6 +38,7 @@ export const POST = createAdminRouteHandler(async ({ request }) => {
 
   if (action === "delete") {
     await removeAdminCustomPage(String(input.id ?? ""))
+    revalidateCustomPagesCache()
     if (currentRecord?.routePath) {
       revalidatePath(currentRecord.routePath)
     }
@@ -46,12 +48,14 @@ export const POST = createAdminRouteHandler(async ({ request }) => {
 
   if (action === "update-status") {
     const result = await updateAdminCustomPageStatus(String(input.id ?? ""), input.status)
+    revalidateCustomPagesCache()
     revalidatePath(result.routePath)
     revalidatePath("/admin")
     return apiSuccess(undefined, "自定义页面状态已更新")
   }
 
   const result = await saveAdminCustomPage(input)
+  revalidateCustomPagesCache()
 
   if (currentRecord?.routePath && currentRecord.routePath !== result.routePath) {
     revalidatePath(currentRecord.routePath)

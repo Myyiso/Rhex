@@ -61,6 +61,7 @@ export const INTERNAL_SETTING_TABS: Record<
     { key: "branding", label: "品牌基础" },
     { key: "homepage", label: "首页展示" },
     { key: "seo", label: "SEO 与统计" },
+    { key: "appearance", label: "\u4e3b\u9898\u5916\u89c2" },
   ],
   registration: [
     { key: "invite", label: "注册与邀请码" },

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Bell, Gem, LayoutDashboard, LogOut, Medal, MessageSquareMore, Settings, TrendingUp, User, Wallet } from "lucide-react"
 
 import { useInboxRealtime } from "@/components/inbox-realtime-provider"
+import { useCurrentUser, type CurrentUserClient } from "@/components/current-user-provider"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,15 +22,7 @@ import { cn } from "@/lib/utils"
 import { getVipLevel, isVipActive } from "@/lib/vip-status"
 
 interface HeaderUserActionsProps {
-  user: {
-    id:number,
-    username: string
-    nickname?: string | null
-    avatarPath?: string | null
-    vipLevel?: number
-    vipExpiresAt?: string | null
-    canAccessAdmin?: boolean
-  } | null
+  user?: (CurrentUserClient & { canAccessAdmin?: boolean }) | null
 }
 
 type UserMenuSettingsTab = "level" | "points" | "badges"
@@ -154,8 +147,15 @@ function UserMenuContent({
   )
 }
 
-export function HeaderUserActions({ user }: HeaderUserActionsProps) {
+export function HeaderUserActions({ user: userOverride }: HeaderUserActionsProps = {}) {
   const router = useRouter()
+  const { user: currentUser, loading, refresh } = useCurrentUser()
+  const user = userOverride ?? (currentUser
+    ? {
+        ...currentUser,
+        canAccessAdmin: currentUser.role === "ADMIN" || currentUser.role === "MODERATOR",
+      }
+    : null)
   const { unreadMessageCount, unreadNotificationCount } = useInboxRealtime()
   const buildMobileSettingsHref = (tab?: UserMenuSettingsTab) => (
     tab ? `/settings?tab=${tab}&mobile=detail` : "/settings"
@@ -166,8 +166,15 @@ export function HeaderUserActions({ user }: HeaderUserActionsProps) {
       method: "POST",
       cache: "no-store",
     })
+    await refresh()
     router.replace("/")
     router.refresh()
+  }
+
+  if (!user && loading) {
+    return (
+      <div className="size-8 rounded-md bg-muted/60" aria-hidden="true" />
+    )
   }
 
   if (!user) {

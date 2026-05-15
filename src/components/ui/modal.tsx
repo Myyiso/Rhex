@@ -130,7 +130,7 @@ export function Modal({
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "z-[120] flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-h-[calc(100dvh-3rem)]",
+          "z-[210] flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-h-[calc(100dvh-3rem)]",
           sizeClassMap[size]
         )}
       >

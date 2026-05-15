@@ -76,42 +76,20 @@ const RSS_QUEUE_RETENTION_SECONDS = Math.max(
   Number.parseInt(process.env.RSS_QUEUE_RETENTION_SECONDS?.trim() ?? "", 10) || 7 * 24 * 60 * 60,
 )
 const RSS_QUEUE_RETENTION_MS = RSS_QUEUE_RETENTION_SECONDS * 1_000
-const CLAIM_PENDING_RSS_QUEUE_RECORD_LUA = `
-local itemsKey = KEYS[1]
-local pendingStatusKey = KEYS[2]
-local processingStatusKey = KEYS[3]
-local recordId = ARGV[1]
-local workerId = ARGV[2]
-local startedAt = ARGV[3]
-local score = ARGV[4]
-
-local currentValue = redis.call("HGET", itemsKey, recordId)
-if not currentValue then
-  return nil
-end
-
-local ok, record = pcall(cjson.decode, currentValue)
-if not ok or type(record) ~= "table" or record.status ~= "PENDING" then
-  return nil
-end
-
-record.backgroundJobId = cjson.null
-record.status = "PROCESSING"
-record.startedAt = startedAt
-record.attemptCount = (tonumber(record.attemptCount) or 0) + 1
-record.workerId = workerId
-record.leaseExpiresAt = cjson.null
-record.updatedAt = startedAt
-
-local nextValue = cjson.encode(record)
-redis.call("HSET", itemsKey, recordId, nextValue)
-redis.call("ZREM", pendingStatusKey, recordId)
-redis.call("ZADD", processingStatusKey, score, recordId)
-
-return nextValue
-`
+const REDIS_QUEUE_PRUNE_BATCH_SIZE = 200
 
 type RedisQueueConnection = ReturnType<typeof getRedis>
+type RssQueueRedisCommands = RedisQueueConnection & {
+  rssQueueClaimPending: (
+    itemsKey: string,
+    pendingStatusKey: string,
+    processingStatusKey: string,
+    recordId: string,
+    workerId: string,
+    startedAt: string,
+    score: string,
+  ) => Promise<unknown>
+}
 type RedisQueueContext = {
   redis?: RedisQueueConnection
 }
@@ -144,32 +122,39 @@ async function ensureStatusIndexesBackfilled(redis: RedisQueueConnection) {
     return
   }
   try {
-    const raw = await redis.zrange(RSS_QUEUE_INDEX_KEY, 0, -1, "WITHSCORES").catch(() => [] as string[])
-    if (raw.length === 0) {
-      return
-    }
-    const pairs: Array<{ id: string; score: string }> = []
-    for (let i = 0; i + 1 < raw.length; i += 2) {
-      pairs.push({ id: raw[i]!, score: raw[i + 1]! })
-    }
-    if (pairs.length === 0) {
-      return
-    }
-    const values = await redis.hmget(RSS_QUEUE_ITEMS_KEY, ...pairs.map((p) => p.id))
-    const multi = redis.multi()
-    for (let i = 0; i < pairs.length; i += 1) {
-      const rawValue = values[i]
-      if (!rawValue) continue
-      try {
-        const record = JSON.parse(rawValue) as { status?: RssQueueStatusValue }
-        if (record.status && (RSS_QUEUE_STATUSES as readonly string[]).includes(record.status)) {
-          multi.zadd(getStatusQueueIndexKey(record.status), pairs[i]!.score, pairs[i]!.id)
-        }
-      } catch {
-        // ignore corrupt row
+    let start = 0
+    while (true) {
+      const raw = await redis.zrange(RSS_QUEUE_INDEX_KEY, start, start + REDIS_QUEUE_PRUNE_BATCH_SIZE - 1, "WITHSCORES").catch(() => [] as string[])
+      if (raw.length === 0) {
+        return
       }
+      const pairs: Array<{ id: string; score: string }> = []
+      for (let i = 0; i + 1 < raw.length; i += 2) {
+        pairs.push({ id: raw[i]!, score: raw[i + 1]! })
+      }
+      if (pairs.length === 0) {
+        return
+      }
+      const values = await redis.hmget(RSS_QUEUE_ITEMS_KEY, ...pairs.map((p) => p.id))
+      const multi = redis.multi()
+      for (let i = 0; i < pairs.length; i += 1) {
+        const rawValue = values[i]
+        if (!rawValue) continue
+        try {
+          const record = JSON.parse(rawValue) as { status?: RssQueueStatusValue }
+          if (record.status && (RSS_QUEUE_STATUSES as readonly string[]).includes(record.status)) {
+            multi.zadd(getStatusQueueIndexKey(record.status), pairs[i]!.score, pairs[i]!.id)
+          }
+        } catch {
+          // ignore corrupt row
+        }
+      }
+      await multi.exec()
+      if (pairs.length < REDIS_QUEUE_PRUNE_BATCH_SIZE) {
+        return
+      }
+      start += REDIS_QUEUE_PRUNE_BATCH_SIZE
     }
-    await multi.exec()
   } catch (err) {
     await redis.del(RSS_QUEUE_STATUS_MIGRATION_KEY).catch(() => {})
     throw err
@@ -298,28 +283,39 @@ async function withRedisQueueConnection<T>(
 
 async function pruneRedisQueue(nowMs = Date.now(), context?: RedisQueueContext) {
   await withRedisQueueConnection("rss-harvest:queue-prune", context, async (redis) => {
-    const ids = await redis.zrange(RSS_QUEUE_INDEX_KEY, 0, -1).catch(() => [])
-    if (!Array.isArray(ids) || ids.length === 0) {
-      return
-    }
+    let start = 0
 
-    const values = await redis.hmget(RSS_QUEUE_ITEMS_KEY, ...ids)
-    for (let index = 0; index < ids.length; index += 1) {
-      const record = parseRecord(values[index])
-      if (!record || shouldPruneRecord(record, nowMs)) {
-        if (record) {
-          await removeRedisRecord(redis, record)
-        } else {
-          const orphanId = ids[index] ?? ""
-          const multi = redis.multi()
-            .hdel(RSS_QUEUE_ITEMS_KEY, orphanId)
-            .zrem(RSS_QUEUE_INDEX_KEY, orphanId)
-          for (const status of RSS_QUEUE_STATUSES) {
-            multi.zrem(getStatusQueueIndexKey(status), orphanId)
+    while (true) {
+      const ids = await redis.zrange(RSS_QUEUE_INDEX_KEY, start, start + REDIS_QUEUE_PRUNE_BATCH_SIZE - 1).catch(() => [])
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return
+      }
+
+      const values = await redis.hmget(RSS_QUEUE_ITEMS_KEY, ...ids)
+      let removedCount = 0
+      for (let index = 0; index < ids.length; index += 1) {
+        const record = parseRecord(values[index])
+        if (!record || shouldPruneRecord(record, nowMs)) {
+          removedCount += 1
+          if (record) {
+            await removeRedisRecord(redis, record)
+          } else {
+            const orphanId = ids[index] ?? ""
+            const multi = redis.multi()
+              .hdel(RSS_QUEUE_ITEMS_KEY, orphanId)
+              .zrem(RSS_QUEUE_INDEX_KEY, orphanId)
+            for (const status of RSS_QUEUE_STATUSES) {
+              multi.zrem(getStatusQueueIndexKey(status), orphanId)
+            }
+            await multi.exec()
           }
-          await multi.exec()
         }
       }
+
+      if (ids.length < REDIS_QUEUE_PRUNE_BATCH_SIZE) {
+        return
+      }
+      start += Math.max(0, ids.length - removedCount)
     }
   })
 }
@@ -420,9 +416,7 @@ async function claimPendingRedisQueueRecord(id: string, input: {
   startedAt: Date
 }, context?: RedisQueueContext) {
   return withRedisQueueConnection("rss-harvest:queue-claim", context, async (redis) => {
-    const nextValue = await redis.eval(
-      CLAIM_PENDING_RSS_QUEUE_RECORD_LUA,
-      3,
+    const nextValue = await (redis as RssQueueRedisCommands).rssQueueClaimPending(
       RSS_QUEUE_ITEMS_KEY,
       getStatusQueueIndexKey("PENDING"),
       getStatusQueueIndexKey("PROCESSING"),

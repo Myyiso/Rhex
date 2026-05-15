@@ -1,9 +1,10 @@
-import { NotificationType, RelatedType } from "@/db/types"
+﻿import { NotificationType, RelatedType } from "@/db/types"
 
 import { findRootCommentPageById } from "@/db/comment-queries"
 import { countUnreadNotifications, findCommentsWithPostByIds, findNotificationsByUserIdCursor, findPostsByIds, findUsersByIds } from "@/db/notification-read-queries"
 import { decodeTimestampCursor, encodeTimestampCursor } from "@/lib/cursor-pagination"
 import { formatMonthDayTime } from "@/lib/formatters"
+import { getAnonymousMaskDisplayIdentity } from "@/lib/post-anonymous"
 import { getPostCommentPath, getPostPath } from "@/lib/post-links"
 import { getSiteSettings } from "@/lib/site-settings"
 import { applyHookedUserPresentationToNamedItem } from "@/lib/user-presentation-server"
@@ -170,11 +171,27 @@ export async function getUserNotifications(
       )),
     )
 
+    const hasAnonymousCommentNotification = notifications.some((notification) => {
+      if (notification.relatedType !== RelatedType.COMMENT) {
+        return false
+      }
+
+      const comment = targets.commentMap.get(notification.relatedId)
+      return Boolean(comment?.post?.isAnonymous && comment.useAnonymousIdentity)
+    })
+    const anonymousMaskIdentity = hasAnonymousCommentNotification ? await getAnonymousMaskDisplayIdentity() : null
+
     const items = await Promise.all(notifications.map(async (notification, index) => {
+      const commentTarget = notification.relatedType === RelatedType.COMMENT
+        ? targets.commentMap.get(notification.relatedId)
+        : null
+      const shouldMaskSender = Boolean(commentTarget?.post?.isAnonymous && commentTarget.useAnonymousIdentity)
       const sender = notification.sender
         ? await applyHookedUserPresentationToNamedItem({
-            username: notification.sender.username,
-            displayName: getUserDisplayName(notification.sender, "系统"),
+            username: shouldMaskSender ? (anonymousMaskIdentity?.username ?? "anonymous-user") : notification.sender.username,
+            displayName: shouldMaskSender
+              ? (anonymousMaskIdentity?.name ?? anonymousMaskIdentity?.username ?? "匿名用户")
+              : getUserDisplayName(notification.sender, "系统"),
             displayedBadges: [],
           })
         : null

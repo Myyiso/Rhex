@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 
-import { AddonClientComponentHost } from "@/addons-host/client/addon-client-component-host"
+import { AddonClientComponentHostLoader } from "@/addons-host/client/addon-client-component-host-loader"
 import { usePreferredAddonSurfaceOverride } from "@/addons-host/client/addon-runtime-provider"
 import type { AddonSurfaceKey } from "@/addons-host/types"
 
@@ -31,7 +31,7 @@ export function AddonSurfaceClientRenderer({
   }
 
   return (
-    <AddonClientComponentHost
+    <AddonClientComponentHostLoader
       moduleUrl={override.clientModuleUrl}
       props={props}
       fallback={fallback}

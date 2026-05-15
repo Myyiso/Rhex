@@ -25,6 +25,7 @@ const adminSettingsSectionDetails: Record<
     label: "基础信息",
     defaultSubTab: "branding",
     subTabs: [
+      { key: "appearance", label: "\u4e3b\u9898\u5916\u89c2" },
       { key: "branding", label: "品牌基础" },
       { key: "homepage", label: "首页展示" },
       { key: "seo", label: "SEO 与统计" },

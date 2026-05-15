@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-import { MarkdownContent } from "@/components/markdown-content"
+import { MarkdownContentClient as MarkdownContent } from "@/components/markdown-content-client"
 import { PurchaseUnlockButton } from "@/components/post/purchase-unlock-button"
 import type { MarkdownEmojiItem } from "@/lib/markdown-emoji"
 import { addPostReplyCreatedListener } from "@/lib/post-discussion-events"

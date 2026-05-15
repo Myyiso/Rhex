@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, Compass, Grid2x2, PenSquare, S
 import { Suspense, useEffect, useMemo, useState } from "react"
 
 import { LevelIcon } from "@/components/level-icon"
+import { useCurrentUser } from "@/components/current-user-provider"
 import { SearchForm } from "@/components/search-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,9 +19,7 @@ import { cn } from "@/lib/utils"
 import type { SiteZoneItem } from "@/lib/zones"
 
 interface MobileHeaderQuickActionsProps {
-  isLoggedIn: boolean
   checkInEnabled: boolean
-  checkedInToday: boolean
   appLinks: SiteHeaderAppLinkItem[]
   search?: SiteSearchSettings
   zones: SiteZoneItem[]
@@ -34,9 +33,7 @@ function normalizeKeyword(value: string) {
 }
 
 export function MobileHeaderQuickActions({
-  isLoggedIn,
   checkInEnabled,
-  checkedInToday: initialCheckedInToday,
   appLinks,
   search = {
     enabled: true,
@@ -47,6 +44,9 @@ export function MobileHeaderQuickActions({
 }: MobileHeaderQuickActionsProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { user, surface, refresh } = useCurrentUser()
+  const isLoggedIn = Boolean(user)
+  const initialCheckedInToday = surface?.checkedInToday ?? false
   const [navOpen, setNavOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [view, setView] = useState<MobileHeaderPanelView>("main")
@@ -164,6 +164,7 @@ export function MobileHeaderQuickActions({
       setCheckedInToday(true)
       toast.success(result.message ?? "签到成功", "签到成功")
       setNavOpen(false)
+      await refresh()
       router.refresh()
     } catch {
       toast.error("签到失败，请稍后再试", "签到失败")

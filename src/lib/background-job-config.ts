@@ -87,6 +87,7 @@ export function isBackgroundJobNonProductionNodeEnv() {
 
 export const DEFAULT_STREAM_MAX_LENGTH = 10_000
 export const DEFAULT_BLOCK_TIMEOUT_MS = 5_000
+export const DEFAULT_READ_BATCH_SIZE = 10
 export const DEFAULT_PENDING_IDLE_MS = 15 * 60 * 1_000
 export const DEFAULT_PENDING_CLAIM_BATCH_SIZE = 20
 export const DEFAULT_PENDING_SWEEP_INTERVAL_MS = 15_000
@@ -104,6 +105,10 @@ export function getBackgroundJobStreamMaxLength() {
 
 export function getBackgroundJobBlockTimeoutMs() {
   return parseBoundedInteger(process.env.BACKGROUND_JOB_BLOCK_TIMEOUT_MS, DEFAULT_BLOCK_TIMEOUT_MS, { min: 250, max: 60_000 })
+}
+
+export function getBackgroundJobReadBatchSize() {
+  return parseBoundedInteger(process.env.BACKGROUND_JOB_READ_BATCH_SIZE, DEFAULT_READ_BATCH_SIZE, { min: 1, max: 200 })
 }
 
 export function getBackgroundJobPendingIdleMs() {

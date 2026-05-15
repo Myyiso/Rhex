@@ -32,7 +32,7 @@ const getPersistentHomeSidebarHotTopics = unstable_cache(
         authorAvatarPath: post.author.avatarPath,
       }, anonymousMaskIdentity)
       const latestReply = post.comments[0]
-      const latestReplyAuthorName = post.isAnonymous && latestReply?.userId === post.author.id && latestReply.useAnonymousIdentity
+      const latestReplyAuthorName = post.isAnonymous && latestReply?.useAnonymousIdentity
         ? (anonymousMaskIdentity?.name ?? anonymousMaskIdentity?.username ?? "匿名用户")
         : getUserDisplayName(latestReply?.user ?? post.author)
       return {

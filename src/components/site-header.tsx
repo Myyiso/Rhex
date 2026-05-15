@@ -5,12 +5,10 @@ import { Suspense } from "react"
 import { HeaderUserActions } from "@/components/header-user-actions"
 import { MobileHeaderQuickActions } from "@/components/mobile-header-quick-actions"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { getCurrentUser } from "@/lib/auth"
 import { getBoards } from "@/lib/boards"
 import { SearchForm } from "@/components/search-form"
 import { resolveSiteIconPath } from "@/lib/site-branding"
 import { getSiteSettings } from "@/lib/site-settings"
-import { resolveUserSurfaceSnapshot } from "@/lib/user-surface"
 import { getZones } from "@/lib/zones"
 import { AddonSlotRenderer } from "@/addons-host"
 
@@ -46,21 +44,7 @@ function SiteLogoMark({ logoPath, iconPath }: { logoPath?: string | null; iconPa
 }
 
 export async function SiteHeader() {
-  const [user, settings, zones, boards] = await Promise.all([getCurrentUser(), getSiteSettings(), getZones(), getBoards()])
-  const surfaceSnapshot = await resolveUserSurfaceSnapshot(user)
-  const checkedInToday = surfaceSnapshot?.checkedInToday ?? false
-  const canAccessAdmin = Boolean(user && (user.role === "ADMIN" || user.role === "MODERATOR"))
-  const headerUser = user
-    ? {
-      id: user.id,
-        username: user.username,
-        nickname: user.nickname,
-        avatarPath: user.avatarPath,
-        vipLevel: (user as { vipLevel?: number }).vipLevel,
-        vipExpiresAt: (user as { vipExpiresAt?: Date | string | null }).vipExpiresAt?.toString?.() ?? null,
-        canAccessAdmin,
-      }
-    : null
+  const [settings, zones, boards] = await Promise.all([getSiteSettings(), getZones(), getBoards()])
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/80 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
@@ -83,9 +67,7 @@ export async function SiteHeader() {
                 <span className="sr-only">{settings.siteLogoText}</span>
               </Link>
               <MobileHeaderQuickActions
-                isLoggedIn={Boolean(user)}
                 checkInEnabled={settings.checkInEnabled}
-                checkedInToday={checkedInToday}
                 appLinks={settings.headerAppLinks}
                 search={settings.search}
                 zones={zones}
@@ -106,7 +88,7 @@ export async function SiteHeader() {
             <div className="ml-auto flex h-14 items-center gap-1.5">
               <AddonSlotRenderer slot="layout.header.right" />
               <ThemeToggle />
-              <HeaderUserActions user={headerUser} />
+              <HeaderUserActions />
 
             </div>
           </div>

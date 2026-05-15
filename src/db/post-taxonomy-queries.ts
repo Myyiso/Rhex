@@ -92,3 +92,64 @@ export async function replacePostTaxonomy(postId: string, summary: string, manua
     ])
   })
 }
+
+export async function replacePostTags(postId: string, manualTags?: string[]) {
+  return prisma.$transaction(async (tx) => {
+    const existingRelations = await tx.postTag.findMany({
+      where: { postId },
+      select: {
+        tagId: true,
+        tag: {
+          select: {
+            slug: true,
+          },
+        },
+      },
+    })
+
+    const normalizedTags = buildNormalizedTags(manualTags)
+    const syncedTags = await Promise.all(
+      normalizedTags.map(({ name, slug }) => tx.tag.upsert({
+        where: { slug },
+        update: {
+          name,
+        },
+        create: {
+          name,
+          slug,
+        },
+      })),
+    )
+
+    await tx.postTag.deleteMany({
+      where: { postId },
+    })
+
+    if (syncedTags.length > 0) {
+      await tx.postTag.createMany({
+        data: syncedTags.map((tag) => ({
+          postId,
+          tagId: tag.id,
+        })),
+        skipDuplicates: true,
+      })
+    }
+
+    await syncTagPostCounts(tx, [
+      ...existingRelations.map((relation) => relation.tagId),
+      ...syncedTags.map((tag) => tag.id),
+    ])
+
+    return {
+      tags: syncedTags.map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        slug: tag.slug,
+      })),
+      affectedTagSlugs: [...new Set([
+        ...existingRelations.map((relation) => relation.tag.slug),
+        ...syncedTags.map((tag) => tag.slug),
+      ].filter(Boolean))],
+    }
+  })
+}

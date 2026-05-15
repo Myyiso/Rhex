@@ -1,7 +1,7 @@
 import Script from "next/script"
 import { Fragment } from "react"
 
-import { AddonClientIsland } from "@/addons-host/client/addon-client-island"
+import { AddonClientIslandLoader } from "@/addons-host/client/addon-client-island-loader"
 import {
   executeAddonSlot,
   executeAddonSurface,
@@ -76,7 +76,7 @@ export function AddonRenderBlock({
         />
       ) : null}
       {clientModuleUrl ? (
-        <AddonClientIsland moduleUrl={clientModuleUrl} props={result.clientProps} fallback={islandFallback} />
+        <AddonClientIslandLoader moduleUrl={clientModuleUrl} props={result.clientProps} fallback={islandFallback} />
       ) : null}
       {!result.html && textContent ? (
         <Tag

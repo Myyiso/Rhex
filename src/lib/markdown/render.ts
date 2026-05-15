@@ -9,7 +9,6 @@ import markdownItMark from "markdown-it-mark"
 import markdownItSub from "markdown-it-sub"
 import markdownItSup from "markdown-it-sup"
 import markdownItTaskLists from "markdown-it-task-lists"
-import hljs from "highlight.js"
 
 import { renderUserLinkTokens } from "@/lib/mentions"
 import { renderMarkdownEmojiHtml, type MarkdownEmojiItem } from "@/lib/markdown-emoji"
@@ -508,11 +507,7 @@ function createMarkdownRenderer(emojiItems: MarkdownEmojiItem[]) {
         return `<div class="md-mermaid" data-mermaid="${escapeHtml(code)}"><div class="md-mermaid-loading">正在渲染 Mermaid 图表…</div></div>`
       }
 
-      const highlighted = languageName && hljs.getLanguage(languageName)
-        ? hljs.highlight(code, { language: languageName, ignoreIllegals: true }).value
-        : hljs.highlightAuto(code).value
-
-      return `<pre class="md-code-block"><div class="md-code-header"><span>${safeLanguage || "text"}</span></div><code class="language-${safeLanguage}">${highlighted}</code></pre>`
+      return `<pre class="md-code-block"><div class="md-code-header"><span>${safeLanguage || "text"}</span></div><code class="language-${safeLanguage}">${escapeHtml(code)}</code></pre>`
     },
   })
 

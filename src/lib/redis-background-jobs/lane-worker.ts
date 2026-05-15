@@ -5,6 +5,7 @@ import {
   getBackgroundJobDeadLetterMaxLength,
   getBackgroundJobIdempotencyTtlSeconds,
   getBackgroundJobPendingSweepIntervalMs,
+  getBackgroundJobReadBatchSize,
 } from "@/lib/background-job-config"
 import { computeBackgroundJobLaneRestartDelayMs } from "@/lib/background-job-helpers"
 import {
@@ -112,7 +113,7 @@ export class BackgroundJobLaneWorker {
       getBackgroundJobConsumerGroupName(),
       consumerName,
       "COUNT",
-      "1",
+      String(getBackgroundJobReadBatchSize()),
       "BLOCK",
       String(getBackgroundJobBlockTimeoutMs()),
       "STREAMS",

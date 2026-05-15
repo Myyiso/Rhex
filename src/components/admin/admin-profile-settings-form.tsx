@@ -30,6 +30,28 @@ import {
   POST_LIST_LOAD_MODE_INFINITE,
   POST_LIST_LOAD_MODE_PAGINATION,
 } from "@/lib/post-list-load-mode"
+import type { BuiltInThemePreset, CustomThemeModeConfig, FontSizePreset } from "@/lib/theme"
+
+const themePresetKeys: BuiltInThemePreset[] = ["default", "sea", "jade", "amber", "graphite"]
+const fontSizePresetKeys: FontSizePreset[] = ["compact", "normal", "relaxed"]
+const themeModeKeys = ["light", "dark"] as const
+const themeColorKeys: Array<keyof CustomThemeModeConfig> = ["primary", "background", "card", "accent", "border"]
+const fontSizeFallbackLabels: Record<FontSizePreset, string> = {
+  compact: "Small",
+  normal: "Medium",
+  relaxed: "Large",
+}
+const themeModeLabels: Record<(typeof themeModeKeys)[number], string> = {
+  light: "Light",
+  dark: "Dark",
+}
+const themeColorLabels: Record<keyof CustomThemeModeConfig, string> = {
+  primary: "Primary",
+  background: "Background",
+  card: "Card",
+  accent: "Accent",
+  border: "Border",
+}
 
 export function AdminProfileSettingsForm({
   activeSubTab,
@@ -38,6 +60,157 @@ export function AdminProfileSettingsForm({
 }: AdminProfileSettingsFormProps) {
   const [isUploadingLogo, setIsUploadingLogo] = useState(false)
   const [isUploadingIcon, setIsUploadingIcon] = useState(false)
+  const themePresetOptions = themePresetKeys.map((value) => ({
+    value,
+    label: draft.themePresets[value]?.label || value,
+  }))
+  const fontSizePresetOptions = fontSizePresetKeys.map((value) => ({
+    value,
+    label: draft.fontSizePresets[value]?.label || fontSizeFallbackLabels[value],
+  }))
+
+  function updateFontSizePresetField(preset: FontSizePreset, field: "label" | "size", value: string) {
+    updateDraftField("fontSizePresets", {
+      ...draft.fontSizePresets,
+      [preset]: {
+        ...draft.fontSizePresets[preset],
+        [field]: value,
+      },
+    })
+  }
+
+  function updateThemePresetField(preset: BuiltInThemePreset, field: "label" | "description", value: string) {
+    updateDraftField("themePresets", {
+      ...draft.themePresets,
+      [preset]: {
+        ...draft.themePresets[preset],
+        [field]: value,
+      },
+    })
+  }
+
+  function updateThemePresetColor(
+    preset: BuiltInThemePreset,
+    mode: "light" | "dark",
+    field: keyof CustomThemeModeConfig,
+    value: string,
+  ) {
+    updateDraftField("themePresets", {
+      ...draft.themePresets,
+      [preset]: {
+        ...draft.themePresets[preset],
+        [mode]: {
+          ...draft.themePresets[preset][mode],
+          [field]: value,
+        },
+      },
+    })
+  }
+
+  const themeAppearanceSettings = (
+    <div className="grid gap-4">
+      <SettingsSection
+        title={"\u4e3b\u9898\u4e0e\u5b57\u53f7\u9884\u8bbe"}
+        description={"\u5355\u72ec\u7ba1\u7406\u524d\u53f0\u4e3b\u9898\u9884\u8bbe\u3001\u9ed8\u8ba4\u4e3b\u9898\u548c\u5b57\u53f7\u6863\u4f4d\u3002"}
+        action={<Badge variant="outline">Appearance</Badge>}
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <SettingsSelectField
+            label={"\u9ed8\u8ba4\u4e3b\u9898\u9884\u8bbe"}
+            value={draft.defaultThemePreset}
+            onChange={(value) =>
+              updateDraftField(
+                "defaultThemePreset",
+                value as typeof draft.defaultThemePreset,
+              )}
+            options={themePresetOptions}
+            description={"\u65b0\u8bbf\u5ba2\u548c\u672a\u8bbe\u7f6e\u672c\u5730\u4e3b\u9898\u7684\u7528\u6237\u9ed8\u8ba4\u4f7f\u7528\u8fd9\u4e2a\u9884\u8bbe\u3002"}
+          />
+          <SettingsSelectField
+            label={"\u9ed8\u8ba4\u5b57\u53f7\u9884\u8bbe"}
+            value={draft.defaultFontSizePreset}
+            onChange={(value) =>
+              updateDraftField(
+                "defaultFontSizePreset",
+                value as typeof draft.defaultFontSizePreset,
+              )}
+            options={fontSizePresetOptions}
+            description={"\u53ef\u5728\u4e0b\u65b9\u81ea\u5b9a\u4e49\u5c0f\u53f7\u3001\u4e2d\u53f7\u3001\u5927\u53f7\u7684\u5177\u4f53 px \u503c\u3002"}
+          />
+        </div>
+        <div className="rounded-2xl border border-border bg-muted/20 p-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">{"\u5b57\u53f7\u9884\u8bbe"}</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{"\u7ba1\u7406\u5458\u53ef\u81ea\u5b9a\u4e49\u540d\u79f0\u548c\u5b57\u53f7\uff0c\u4f8b\u5982\u5c0f\u53f7 10\u3001\u4e2d\u53f7 15\u3001\u5927\u53f7 20\u3002"}</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {fontSizePresetKeys.map((presetKey) => (
+              <div key={presetKey} className="grid gap-3 rounded-xl border border-border bg-background p-3">
+                <TextField
+                  label={"\u540d\u79f0"}
+                  value={draft.fontSizePresets[presetKey].label}
+                  onChange={(value) => updateFontSizePresetField(presetKey, "label", value)}
+                  placeholder={fontSizeFallbackLabels[presetKey]}
+                />
+                <TextField
+                  label={"\u5b57\u53f7 px"}
+                  value={draft.fontSizePresets[presetKey].size.replace(/px$/i, "")}
+                  onChange={(value) => updateFontSizePresetField(presetKey, "size", value)}
+                  placeholder="15"
+                  type="number"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-border bg-muted/20 p-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold">{"\u4e3b\u9898\u9884\u8bbe"}</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{"\u4e94\u4e2a\u524d\u53f0\u4e3b\u9898\u9884\u8bbe\u7684\u540d\u79f0\u548c\u914d\u8272\u90fd\u53ef\u5728\u8fd9\u91cc\u81ea\u5b9a\u4e49\u3002"}</p>
+          </div>
+          <div className="grid gap-4">
+            {themePresetKeys.map((presetKey) => (
+              <div key={presetKey} className="rounded-xl border border-border bg-background p-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <TextField
+                    label={"\u9884\u8bbe\u540d\u79f0"}
+                    value={draft.themePresets[presetKey].label}
+                    onChange={(value) => updateThemePresetField(presetKey, "label", value)}
+                    placeholder={presetKey}
+                  />
+                  <TextField
+                    label={"\u9884\u8bbe\u8bf4\u660e"}
+                    value={draft.themePresets[presetKey].description}
+                    onChange={(value) => updateThemePresetField(presetKey, "description", value)}
+                    placeholder="Theme description"
+                  />
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {themeModeKeys.map((mode) => (
+                    <div key={`${presetKey}-${mode}`} className="rounded-xl bg-muted/30 p-3">
+                      <div className="mb-2 text-xs font-semibold text-muted-foreground">{themeModeLabels[mode]}</div>
+                      <div className="grid gap-2 sm:grid-cols-5">
+                        {themeColorKeys.map((colorKey) => (
+                          <TextField
+                            key={`${presetKey}-${mode}-${colorKey}`}
+                            label={themeColorLabels[colorKey]}
+                            value={draft.themePresets[presetKey][mode][colorKey]}
+                            onChange={(value) => updateThemePresetColor(presetKey, mode, colorKey, value)}
+                            type="color"
+                            inputClassName="px-2"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </SettingsSection>
+    </div>
+  )
 
   async function uploadSiteLogo(file: File) {
     setIsUploadingLogo(true)
@@ -353,6 +526,8 @@ export function AdminProfileSettingsForm({
           </SettingsSection>
         </div>
       ) : null}
+
+      {activeSubTab === "appearance" ? themeAppearanceSettings : null}
 
       {activeSubTab === "seo" ? (
         <div className="space-y-4">

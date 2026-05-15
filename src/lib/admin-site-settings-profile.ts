@@ -8,10 +8,11 @@ import { finalizeSiteSettingsUpdate, type SiteSettingsRecord } from "@/lib/admin
 import { normalizeMarkdownEmojiItems, serializeMarkdownEmojiItems } from "@/lib/markdown-emoji"
 import { normalizePostListLoadMode } from "@/lib/post-list-load-mode"
 import { normalizePostListDisplayMode } from "@/lib/post-list-display"
-import { mergeFooterCopyrightSettings, mergeHomeFeedPostListLoadSettings, mergeHomeSidebarAnnouncementSettings, mergeLeftSidebarDisplaySettings, mergePostPageSizeSettings, mergePostSlugGenerationSettings, mergeSiteBrandingSettings, normalizeLeftSidebarDisplayMode, normalizePostSlugGenerationMode, resolveFooterCopyrightSettings, resolveHomeFeedPostListLoadSettings, resolveHomeSidebarAnnouncementSettings, resolveLeftSidebarDisplaySettings, resolvePostPageSizeSettings, resolvePostSlugGenerationSettings, resolveSiteBrandingSettings } from "@/lib/site-settings-app-state"
+import { mergeFooterCopyrightSettings, mergeHomeFeedPostListLoadSettings, mergeHomeSidebarAnnouncementSettings, mergeLeftSidebarDisplaySettings, mergePostPageSizeSettings, mergePostSlugGenerationSettings, mergeSiteBrandingSettings, mergeThemeCustomizationSettings, normalizeLeftSidebarDisplayMode, normalizePostSlugGenerationMode, resolveFooterCopyrightSettings, resolveHomeFeedPostListLoadSettings, resolveHomeSidebarAnnouncementSettings, resolveLeftSidebarDisplaySettings, resolvePostPageSizeSettings, resolvePostSlugGenerationSettings, resolveSiteBrandingSettings, resolveThemeCustomizationSettingsFromAppState } from "@/lib/site-settings-app-state"
 import { normalizeHeaderAppIconName, normalizeSiteHeaderAppLinks } from "@/lib/site-header-app-links"
 import { mergeSiteSearchSettings, resolveSiteSearchSettings } from "@/lib/site-search-settings"
 import { normalizeFooterLinks } from "@/lib/shared/config-parsers"
+import { resolveThemeCustomizationSettings } from "@/lib/theme"
 
 export async function updateProfileSiteSettingsSection(existing: SiteSettingsRecord, body: JsonObject, section: string) {
   if (section === "site-profile") {
@@ -62,6 +63,12 @@ export async function updateProfileSiteSettingsSection(existing: SiteSettingsRec
       appStateJson: existing.appStateJson,
       iconPathFallback: "",
     })
+    const existingThemeCustomizationSettings = resolveThemeCustomizationSettingsFromAppState({
+      appStateJson: existing.appStateJson,
+    })
+    const themeCustomization = resolveThemeCustomizationSettings(
+      body.themeCustomization === undefined ? existingThemeCustomizationSettings : body.themeCustomization,
+    )
     const footerBrandingVisible = body.footerBrandingVisible === undefined
       ? existingFooterCopyrightSettings.brandingVisible
       : Boolean(body.footerBrandingVisible)
@@ -120,7 +127,9 @@ export async function updateProfileSiteSettingsSection(existing: SiteSettingsRec
         : siteIconPath,
     })
 
-    const appStateJson = mergeFooterCopyrightSettings(appStateWithSiteBranding, {
+    const appStateWithThemeDefaults = mergeThemeCustomizationSettings(appStateWithSiteBranding, themeCustomization)
+
+    const appStateJson = mergeFooterCopyrightSettings(appStateWithThemeDefaults, {
       text: footerCopyrightText || existingFooterCopyrightSettings.text || `${siteName} @ ${new Date().getFullYear()}`,
       brandingVisible: footerBrandingVisible,
     })

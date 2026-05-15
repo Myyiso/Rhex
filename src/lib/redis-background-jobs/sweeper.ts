@@ -30,6 +30,17 @@ import {
   type RedisStreamEntry,
 } from "./transport"
 
+type BackgroundJobSweeperRedisCommands = Redis & {
+  backgroundJobPromoteDueDelayed: (
+    delayedKey: string,
+    streamKey: string,
+    indexKey: string,
+    nowMs: string,
+    limit: string,
+    maxLength: string,
+  ) => Promise<number>
+}
+
 export type ProcessEntryFn = (
   redis: Redis,
   entry: RedisStreamEntry,
@@ -222,33 +233,7 @@ export class BackgroundJobSweeper {
   }
 
   async promoteDueDelayedJobs(redis: Redis) {
-    const movedCount = await redis.eval(
-      `
-local delayedKey = KEYS[1]
-local streamKey = KEYS[2]
-local indexKey = KEYS[3]
-local now = ARGV[1]
-local limit = tonumber(ARGV[2])
-local maxlen = ARGV[3]
-
-local jobs = redis.call("ZRANGEBYSCORE", delayedKey, "-inf", now, "LIMIT", 0, limit)
-
-for _, job in ipairs(jobs) do
-  redis.call("ZREM", delayedKey, job)
-  local entryId = redis.call("XADD", streamKey, "MAXLEN", "~", maxlen, "*", "job", job)
-  local ok, decoded = pcall(cjson.decode, job)
-  if ok and type(decoded) == "table" and type(decoded.id) == "string" then
-    redis.call("HSET", indexKey, decoded.id, cjson.encode({
-      jobId = decoded.id,
-      location = "stream",
-      entryId = entryId,
-    }))
-  end
-end
-
-return #jobs
-      `,
-      3,
+    const movedCount = await (redis as BackgroundJobSweeperRedisCommands).backgroundJobPromoteDueDelayed(
       getBackgroundJobDelayedSetKey(),
       getBackgroundJobStreamKey(),
       getBackgroundJobIndexKey(),

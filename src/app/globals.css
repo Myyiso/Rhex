@@ -1,7 +1,3 @@
-@import 'katex/dist/katex.min.css' layer(base);
-@import 'yet-another-react-lightbox/styles.css' layer(base);
-@import 'yet-another-react-lightbox/plugins/counter.css' layer(base);
-
 @import 'tailwindcss' source(none);
 
 /* 只扫源码扩展名；禁用自动发现，避免 uploads/ 等二进制被 Oxide scanner 吞入 */
@@ -493,7 +489,7 @@
   }
 
   .markdown-body pre.md-code-block[data-code-collapsible='true'][data-code-expanded='false'] code.hljs {
-    max-height: min(28rem, 58vh);
+    max-height: min(18rem, 42vh);
     overflow: hidden;
     padding-bottom: 4.5rem;
     position: relative;

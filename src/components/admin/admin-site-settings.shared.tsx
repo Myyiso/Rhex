@@ -8,6 +8,7 @@ import { buildDefaultRegistrationEmailTemplateSettings, normalizeRegistrationEma
 import { POST_LIST_LOAD_MODE_INFINITE, POST_LIST_LOAD_MODE_PAGINATION, type PostListLoadMode } from "@/lib/post-list-load-mode"
 import { POST_LIST_DISPLAY_MODE_DEFAULT, POST_LIST_DISPLAY_MODE_GALLERY, type PostListDisplayMode } from "@/lib/post-list-display"
 import { defaultSiteSettingsCreateInput } from "@/lib/site-settings-defaults"
+import { DEFAULT_THEME_CUSTOMIZATION_SETTINGS, type BuiltInThemePreset, type EditableThemePresetDefinition, type FontSizePreset, type FontSizePresetDefinition, type ThemeCustomizationSettings, type ThemeRuntimeSettings } from "@/lib/theme"
 import type { InteractionGateCondition, InteractionGateSettings } from "@/lib/site-settings"
 import type { LeftSidebarDisplayMode, PostSlugGenerationMode, RegistrationEmailTemplateSettings, SiteSearchSettings, SiteTippingGiftItem } from "@/lib/site-settings"
 
@@ -37,6 +38,7 @@ export interface AdminBasicSettingsInitialSettings {
   homeSidebarStatsCardEnabled: boolean
   homeSidebarAnnouncementsEnabled: boolean
   leftSidebarDisplayMode: LeftSidebarDisplayMode
+  theme: ThemeRuntimeSettings
   postSlugGenerationMode: PostSlugGenerationMode
   footerCopyrightText: string
   footerBrandingVisible: boolean
@@ -162,6 +164,10 @@ export interface AdminBasicSettingsDraft {
   homeSidebarStatsCardEnabled: boolean
   homeSidebarAnnouncementsEnabled: boolean
   leftSidebarDisplayMode: LeftSidebarDisplayMode
+  defaultThemePreset: BuiltInThemePreset
+  defaultFontSizePreset: FontSizePreset
+  fontSizePresets: Record<FontSizePreset, FontSizePresetDefinition>
+  themePresets: Record<BuiltInThemePreset, EditableThemePresetDefinition>
   postSlugGenerationMode: PostSlugGenerationMode
   footerCopyrightText: string
   footerBrandingVisible: boolean
@@ -303,6 +309,10 @@ function coerceBoolean(value: unknown, fallback = false) {
   return typeof value === "boolean" ? value : fallback
 }
 
+function copyThemeCustomizationFromRuntime(theme?: ThemeRuntimeSettings): ThemeCustomizationSettings {
+  return theme?.customization ?? DEFAULT_THEME_CUSTOMIZATION_SETTINGS
+}
+
 function getDefaultInteractionGates(): InteractionGateSettings {
   return {
     version: 1,
@@ -320,6 +330,7 @@ function getDefaultInteractionGates(): InteractionGateSettings {
 }
 
 export function createAdminBasicSettingsDraft(initialSettings: AdminBasicSettingsInitialSettings): AdminBasicSettingsDraft {
+  const themeCustomization = copyThemeCustomizationFromRuntime(initialSettings.theme)
   const interactionGates = initialSettings.interactionGates ?? getDefaultInteractionGates()
   const registrationEmailTemplates = normalizeRegistrationEmailTemplateSettings(
     initialSettings.registrationEmailTemplates,
@@ -370,6 +381,10 @@ export function createAdminBasicSettingsDraft(initialSettings: AdminBasicSetting
     homeSidebarStatsCardEnabled: coerceBoolean(initialSettings.homeSidebarStatsCardEnabled, true),
     homeSidebarAnnouncementsEnabled: coerceBoolean(initialSettings.homeSidebarAnnouncementsEnabled, true),
     leftSidebarDisplayMode: initialSettings.leftSidebarDisplayMode ?? "DEFAULT",
+    defaultThemePreset: themeCustomization.defaultThemePreset,
+    defaultFontSizePreset: themeCustomization.defaultFontSizePreset,
+    fontSizePresets: themeCustomization.fontSizePresets,
+    themePresets: themeCustomization.themePresets,
     postSlugGenerationMode: initialSettings.postSlugGenerationMode ?? "TITLE_TIMESTAMP",
     footerCopyrightText: coerceString(initialSettings.footerCopyrightText, `${coerceString(initialSettings.siteName)} @ ${new Date().getFullYear()}`),
     footerBrandingVisible: coerceBoolean(initialSettings.footerBrandingVisible, true),
@@ -515,6 +530,12 @@ export function buildAdminBasicSettingsPayload(draft: AdminBasicSettingsDraft, m
       homeSidebarStatsCardEnabled: draft.homeSidebarStatsCardEnabled,
       homeSidebarAnnouncementsEnabled: draft.homeSidebarAnnouncementsEnabled,
       leftSidebarDisplayMode: draft.leftSidebarDisplayMode,
+      themeCustomization: {
+        defaultThemePreset: draft.defaultThemePreset,
+        defaultFontSizePreset: draft.defaultFontSizePreset,
+        fontSizePresets: draft.fontSizePresets,
+        themePresets: draft.themePresets,
+      },
       postSlugGenerationMode: draft.postSlugGenerationMode,
       footerCopyrightText: draft.footerCopyrightText,
       footerBrandingVisible: draft.footerBrandingVisible,

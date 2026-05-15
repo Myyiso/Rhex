@@ -1,12 +1,13 @@
-import Link from "next/link"
+﻿import Link from "next/link"
 import { FolderOpen, Tag } from "lucide-react"
 
+import { AddonSlotRenderer } from "@/addons-host"
 import { PostTableOfContents } from "@/components/post/post-table-of-contents"
-import { SidebarUserCard, type SidebarUserCardData } from "@/components/user/sidebar-user-card"
+import { PostTagManager } from "@/components/post/post-tag-manager"
 import { SelfServeAdsSidebarPanelSlot } from "@/components/self-serve-ads-sidebar-panel"
+import { SidebarUserCard, type SidebarUserCardData } from "@/components/user/sidebar-user-card"
 import { getPostPath } from "@/lib/post-links"
 import type { MarkdownHeadingItem } from "@/lib/markdown/toc"
-import { AddonSlotRenderer } from "@/addons-host"
 
 interface RelatedTopic {
   id: string
@@ -27,10 +28,12 @@ interface FavoriteCollectionTag {
 }
 
 interface PostSidebarPanelsProps {
+  postId: string
   currentUser: SidebarUserCardData | null
   relatedTopics: RelatedTopic[]
   tags: TopicTag[]
   collections: FavoriteCollectionTag[]
+  canManageTags?: boolean
   tableOfContents?: MarkdownHeadingItem[]
   postLinkDisplayMode?: "SLUG" | "ID"
   siteName?: string
@@ -40,10 +43,12 @@ interface PostSidebarPanelsProps {
 }
 
 export function PostSidebarPanels({
+  postId,
   currentUser,
   relatedTopics,
   tags,
   collections,
+  canManageTags = false,
   tableOfContents = [],
   postLinkDisplayMode = "SLUG",
   siteName,
@@ -60,7 +65,7 @@ export function PostSidebarPanels({
       <div className="mobile-sidebar-section rounded-xl border border-border bg-card p-4 shadow-xs shadow-black/5 dark:shadow-black/30">
         <div className="mb-4 border-b border-border/80 pb-4">
           <h3 className="mb-3 font-semibold">相关主题</h3>
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             {relatedTopics.length === 0 ? <p className="text-sm text-muted-foreground">暂无相关主题。</p> : null}
             {relatedTopics.map((topic) => (
               <Link
@@ -81,9 +86,12 @@ export function PostSidebarPanels({
               <Tag className="h-4 w-4" />
               <h3 className="font-semibold">主题标签</h3>
             </div>
-            <Link href="/tags" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
-              全部标签
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              {canManageTags ? <PostTagManager postId={postId} tags={tags} /> : null}
+              <Link href="/tags" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+                全部标签
+              </Link>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {tags.length === 0 ? <span className="text-sm text-muted-foreground">暂无标签</span> : null}

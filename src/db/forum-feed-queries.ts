@@ -160,6 +160,29 @@ async function findHybridHotFeedPosts(
   const recentWindowStart = getHotRecentWindowStart(hotRecentWindowHours)
   const recentWhere = buildRecentHotWhere(recentWindowStart, excludedPostIds, filters)
   const historyWhere = buildHistoricalHotWhere(recentWindowStart, excludedPostIds, filters)
+
+  if (page === 1) {
+    const recentPosts = await prisma.post.findMany({
+      where: recentWhere,
+      include: feedPostInclude,
+      orderBy: HOT_RECENT_ORDER_BY,
+      take: normalizedPageSize,
+    })
+
+    if (recentPosts.length >= normalizedPageSize) {
+      return recentPosts
+    }
+
+    const historyPosts = await prisma.post.findMany({
+      where: historyWhere,
+      include: feedPostInclude,
+      orderBy: HOT_HISTORY_ORDER_BY,
+      take: normalizedPageSize - recentPosts.length,
+    })
+
+    return [...recentPosts, ...historyPosts]
+  }
+
   const recentCount = await prisma.post.count({
     where: recentWhere,
   })

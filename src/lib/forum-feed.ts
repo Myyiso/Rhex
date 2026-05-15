@@ -66,12 +66,20 @@ async function readPublicFeedPage(
   sort: Exclude<FeedSort, "following">,
   hotRecentWindowHours: number,
 ): Promise<ForumFeedPageResult> {
-  const anonymousMaskIdentity = await getAnonymousMaskDisplayIdentity()
-  const globalPinnedPosts = await findGlobalPinnedPosts({ homeVisibleOnly: true })
+  const [anonymousMaskIdentity, globalPinnedPosts] = await Promise.all([
+    getAnonymousMaskDisplayIdentity(),
+    findGlobalPinnedPosts({ homeVisibleOnly: true }),
+  ])
   const pinnedPostIds = extractPinnedPostIds(globalPinnedPosts)
-  const total = await countLatestFeedPosts(pinnedPostIds)
+  const requestedPagination = resolvePagination({ page, pageSize }, Number.MAX_SAFE_INTEGER, [pageSize], pageSize)
+  const [total, requestedNormalPosts] = await Promise.all([
+    countLatestFeedPosts(pinnedPostIds),
+    findLatestFeedPosts(requestedPagination.page, requestedPagination.pageSize, sort, pinnedPostIds, hotRecentWindowHours),
+  ])
   const pagination = resolvePagination({ page, pageSize }, total, [pageSize], pageSize)
-  const normalPosts = await findLatestFeedPosts(pagination.page, pagination.pageSize, sort, pinnedPostIds, hotRecentWindowHours)
+  const normalPosts = pagination.page === requestedPagination.page
+    ? requestedNormalPosts
+    : await findLatestFeedPosts(pagination.page, pagination.pageSize, sort, pinnedPostIds, hotRecentWindowHours)
 
   return {
     items: pagination.page === 1
@@ -167,7 +175,7 @@ function mapFeedPost(post: FeedPostRecord | PinnedFeedPostRecord, anonymousMaskI
     authorVipLevel: feedPost.author.vipLevel,
     authorIsVip: Boolean(feedPost.author.vipExpiresAt && new Date(feedPost.author.vipExpiresAt).getTime() > Date.now()),
   }, anonymousMaskIdentity)
-  const latestReplyUsesAnonymousIdentity = Boolean(feedPost.isAnonymous && latestReply?.userId === feedPost.author.id && latestReply?.useAnonymousIdentity)
+  const latestReplyUsesAnonymousIdentity = Boolean(feedPost.isAnonymous && latestReply?.useAnonymousIdentity)
   const latestReplyAuthorName = latestReplyUsesAnonymousIdentity
     ? (anonymousMaskIdentity?.name ?? anonymousMaskIdentity?.username ?? "匿名用户")
     : (latestReply ? latestReply.user.nickname ?? latestReply.user.username : null)
@@ -250,10 +258,16 @@ export async function getLatestFeed(
       }
     }
 
-    const anonymousMaskIdentity = await getAnonymousMaskDisplayIdentity()
-    const total = await countFollowingFeedPosts({ boardIds, authorIds })
+    const requestedPagination = resolvePagination({ page, pageSize }, Number.MAX_SAFE_INTEGER, [pageSize], pageSize)
+    const [anonymousMaskIdentity, total, requestedPosts] = await Promise.all([
+      getAnonymousMaskDisplayIdentity(),
+      countFollowingFeedPosts({ boardIds, authorIds }),
+      findFollowingFeedPosts(requestedPagination.page, requestedPagination.pageSize, sort, { boardIds, authorIds }, hotRecentWindowHours),
+    ])
     const pagination = resolvePagination({ page, pageSize }, total, [pageSize], pageSize)
-    const posts = await findFollowingFeedPosts(pagination.page, pagination.pageSize, sort, { boardIds, authorIds }, hotRecentWindowHours)
+    const posts = pagination.page === requestedPagination.page
+      ? requestedPosts
+      : await findFollowingFeedPosts(pagination.page, pagination.pageSize, sort, { boardIds, authorIds }, hotRecentWindowHours)
 
     return {
       items: posts.map((post) => mapFeedPost(post, anonymousMaskIdentity)),

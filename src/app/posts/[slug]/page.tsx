@@ -721,10 +721,12 @@ export default async function PostPage(props: PageProps<"/posts/[slug]">) {
           rightSidebar={(
             <aside className="mt-6 hidden pb-12 lg:block lg:h-full">
               <PostSidebarPanels
+                postId={basePost.id}
                 currentUser={sidebarUser}
                 relatedTopics={sidebarData.relatedTopics}
                 tags={sidebarData.tags}
                 collections={sidebarData.collections}
+                canManageTags={canManageThisPost}
                 tableOfContents={tableOfContents}
                 postLinkDisplayMode={settings.postLinkDisplayMode}
                 siteName={settings.siteName}

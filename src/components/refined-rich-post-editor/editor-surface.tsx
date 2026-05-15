@@ -10,7 +10,7 @@ import type {
   EditorSelectionStore,
   ToolbarTipDefinition,
 } from "@/components/refined-rich-post-editor/types"
-import { MarkdownContent } from "@/components/markdown-content"
+import { MarkdownContentClient as MarkdownContent } from "@/components/markdown-content-client"
 import type {
   AddonEditorTarget,
   AddonEditorToolbarApi,

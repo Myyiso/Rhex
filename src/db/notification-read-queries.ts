@@ -129,11 +129,13 @@ export function findCommentsWithPostByIds(commentIds: string[]) {
     select: {
       id: true,
       parentId: true,
+      useAnonymousIdentity: true,
       post: {
         select: {
           id: true,
           slug: true,
           title: true,
+          isAnonymous: true,
         },
       },
     },

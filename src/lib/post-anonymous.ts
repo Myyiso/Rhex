@@ -71,10 +71,11 @@ export function isAnonymousPost(post: { isAnonymous?: boolean | null }) {
 }
 
 export function canUseAnonymousIdentityForPostReply(input: {
-  post: { isAnonymous?: boolean | null; authorId: number }
+  post: { isAnonymous?: boolean | null; authorId?: number }
   currentUserId: number
 }) {
-  return isAnonymousPost(input.post) && input.post.authorId === input.currentUserId
+  void input.currentUserId
+  return isAnonymousPost(input.post)
 }
 
 export function applyAnonymousIdentityToPost<T extends {
@@ -103,20 +104,20 @@ export function applyAnonymousIdentityToPost<T extends {
     iconText?: string | null
   }>
 }>(post: T, maskIdentity: AnonymousDisplayIdentity | null) {
-  if (!post.isAnonymous || !maskIdentity) {
+  if (!post.isAnonymous) {
     return post
   }
 
   return {
     ...post,
-    author: maskIdentity.name,
-    authorUsername: maskIdentity.username,
-    authorAvatarPath: maskIdentity.avatarPath,
-    authorStatus: maskIdentity.status,
-    authorIsVip: maskIdentity.authorIsVip,
-    authorVipLevel: maskIdentity.authorVipLevel,
-    authorVerification: maskIdentity.authorVerification,
-    authorDisplayedBadges: maskIdentity.authorDisplayedBadges,
+    author: maskIdentity?.name ?? maskIdentity?.username ?? "匿名用户",
+    authorUsername: maskIdentity?.username ?? "anonymous-user",
+    authorAvatarPath: maskIdentity?.avatarPath ?? null,
+    authorStatus: maskIdentity?.status ?? "ACTIVE",
+    authorIsVip: maskIdentity?.authorIsVip ?? false,
+    authorVipLevel: maskIdentity?.authorVipLevel ?? 0,
+    authorVerification: maskIdentity?.authorVerification ?? null,
+    authorDisplayedBadges: maskIdentity?.authorDisplayedBadges ?? [],
   }
 }
 

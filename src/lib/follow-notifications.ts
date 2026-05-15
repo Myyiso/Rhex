@@ -154,7 +154,7 @@ export async function dispatchPostFollowCommentNotifications(params: {
 
   const excludeUserIds = new Set([context.userId, ...(params.excludeUserIds ?? [])])
   const followers = await findPostFollowerUserIds(context.post.id)
-  const anonymousMaskIdentity = context.post.isAnonymous && context.post.authorId === context.userId && context.useAnonymousIdentity
+  const anonymousMaskIdentity = context.post.isAnonymous && context.useAnonymousIdentity
     ? await getAnonymousMaskDisplayIdentity()
     : null
   const senderName = anonymousMaskIdentity?.name ?? anonymousMaskIdentity?.username ?? getUserDisplayName(context.user)

@@ -11,22 +11,10 @@ const DEFAULT_FLUSH_INTERVAL_MS = 30_000
 const DEFAULT_FLUSH_LEASE_TTL_MS = 120_000
 const MAX_FLUSH_ITEMS = 5_000
 
-const CLAIM_PENDING_VIEWS_LUA = `
-if redis.call("exists", KEYS[1]) == 0 then
-  return {}
-end
-redis.call("rename", KEYS[1], KEYS[2])
-return redis.call("hgetall", KEYS[2])
-`
-
-const RESTORE_PROCESSING_VIEWS_LUA = `
-local values = redis.call("hgetall", KEYS[2])
-for i = 1, #values, 2 do
-  redis.call("hincrby", KEYS[1], values[i], values[i + 1])
-end
-redis.call("del", KEYS[2])
-return #values / 2
-`
+type PostViewRedisCommands = {
+  postViewClaimBatch: (pendingKey: string, processingKey: string, maxItems: string) => Promise<unknown>
+  postViewRestoreBatch: (pendingKey: string, processingKey: string) => Promise<number>
+}
 
 type GlobalPostViewCountFlushState = {
   __bbsPostViewCountFlushTimer?: ReturnType<typeof setInterval> | null
@@ -84,7 +72,7 @@ function parseClaimedViewCounts(raw: unknown) {
     items.push({ postId, count: Math.trunc(count) })
   }
 
-  return items.slice(0, MAX_FLUSH_ITEMS)
+  return items
 }
 
 export async function recordPostViewCount(postId: string) {
@@ -133,11 +121,11 @@ export async function flushPostViewCounts() {
 
   try {
     await connectRedisClient(redis)
-    const claimed = parseClaimedViewCounts(await redis.eval(
-      CLAIM_PENDING_VIEWS_LUA,
-      2,
+    const commands = redis as unknown as PostViewRedisCommands
+    const claimed = parseClaimedViewCounts(await commands.postViewClaimBatch(
       POST_VIEW_COUNT_PENDING_KEY,
       processingKey,
+      String(MAX_FLUSH_ITEMS),
     ))
 
     if (claimed.length === 0) {
@@ -154,9 +142,8 @@ export async function flushPostViewCounts() {
     }
   } catch (error) {
     try {
-      await redis.eval(
-        RESTORE_PROCESSING_VIEWS_LUA,
-        2,
+      const commands = redis as unknown as PostViewRedisCommands
+      await commands.postViewRestoreBatch(
         POST_VIEW_COUNT_PENDING_KEY,
         processingKey,
       )

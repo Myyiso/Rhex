@@ -1,7 +1,7 @@
 "use client"
 
 import { Modal } from "@/components/ui/modal"
-import { MarkdownContent } from "@/components/markdown-content"
+import { MarkdownContentClient as MarkdownContent } from "@/components/markdown-content-client"
 import type { MarkdownEmojiItem } from "@/lib/markdown-emoji"
 import type { ClientPlatform } from "@/lib/client-platform"
 import { buildMarkdownEditorHelp } from "@/lib/markdown-editor-help"

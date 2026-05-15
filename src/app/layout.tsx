@@ -4,18 +4,16 @@ import { Suspense, type CSSProperties } from "react"
 
 import { BackToTopButton } from "@/components/back-to-top-button"
 import { ConditionalSiteFooter } from "@/components/conditional-site-footer"
+import { CurrentUserInboxProvider, CurrentUserProvider } from "@/components/current-user-provider"
 import { GlobalNavigationProgress } from "@/components/global-navigation-progress"
-import { InboxRealtimeProvider } from "@/components/inbox-realtime-provider"
 import { RootBootstrap } from "@/components/root-bootstrap"
 import { SiteFooter } from "@/components/site-footer"
 import { SiteSettingsProvider } from "@/components/site-settings-provider"
 import { ThemeProvider } from "@/components/theme-provider"
-import { ConfirmProvider } from "@/components/ui/alert-dialog"
-import { Toaster } from "@/components/ui/sonner"
+import { DeferredToaster } from "@/components/deferred-toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { AddonRuntimeProvider } from "@/addons-host/client/addon-runtime-provider"
 import { RhexGlobalSdkBootstrap } from "@/addons-host/client/rhex-global-sdk"
-import { getCurrentUser } from "@/lib/auth"
 import {
   listAddonEditorProviderDescriptors,
   listAddonEditorToolbarItemDescriptors,
@@ -31,9 +29,9 @@ import { getSidebarNavigationDisplayModeAttribute } from "@/lib/sidebar-navigati
 import { getPublishedCustomPageFooterHiddenPaths } from "@/lib/custom-pages"
 import { getSiteSettings } from "@/lib/site-settings"
 import { resolveThemeDocumentPropsFromCookieString } from "@/lib/theme"
-import { resolveUserSurfaceSnapshot } from "@/lib/user-surface"
 import { buildVipNameColorStyleVariables } from "@/lib/vip-name-colors"
-import { AddonRenderBlock, executeAddonSlot } from "@/addons-host"
+import { executeAddonSlot } from "@/addons-host/runtime/execute"
+import { AddonRenderBlock } from "@/addons-host/runtime/render"
 
 
 
@@ -92,12 +90,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const currentUserPromise = getCurrentUser()
   const cookieStorePromise = cookies()
-  const [settings, currentUser, surfaceSnapshot, editorProviders, editorToolbarItems, addonSurfaceOverrides, headBeforeBlocks, headAfterBlocks, bodyStartBlocks, bodyEndBlocks, footerHiddenPaths, cookieStore] = await Promise.all([
+  const [settings, editorProviders, editorToolbarItems, addonSurfaceOverrides, headBeforeBlocks, headAfterBlocks, bodyStartBlocks, bodyEndBlocks, footerHiddenPaths, cookieStore] = await Promise.all([
     getSiteSettings(),
-    currentUserPromise,
-    currentUserPromise.then((user) => resolveUserSurfaceSnapshot(user)),
     listAddonEditorProviderDescriptors(),
     listAddonEditorToolbarItemDescriptors(),
     listAddonSurfaceOverrideDescriptors(),
@@ -110,27 +105,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   ])
   const vipNameColorStyle = buildVipNameColorStyleVariables(settings.vipNameColors) as CSSProperties
   const sidebarDisplayMode = getSidebarNavigationDisplayModeAttribute(settings.leftSidebarDisplayMode)
-  const themeDocument = resolveThemeDocumentPropsFromCookieString(cookieStore.toString())
-  const rhexSession = currentUser
-    ? {
-        isAuthenticated: true,
-        user: {
-          id: currentUser.id,
-          username: currentUser.username,
-          nickname: currentUser.nickname,
-          avatarPath: currentUser.avatarPath,
-          role: currentUser.role,
-          status: currentUser.status,
-          level: currentUser.level,
-          points: currentUser.points,
-          vipLevel: currentUser.vipLevel,
-          vipExpiresAt: currentUser.vipExpiresAt?.toString?.() ?? null,
-        },
-      }
-    : {
-        isAuthenticated: false,
-        user: null,
-      }
+  const themeRuntime = settings.theme
+  const themeDocument = resolveThemeDocumentPropsFromCookieString(cookieStore.toString(), themeRuntime)
+  const rhexSession = {
+    isAuthenticated: false,
+    user: null,
+  }
   const rhexSite = settings
 
   return (
@@ -168,7 +148,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body style={vipNameColorStyle}>
         <RhexGlobalSdkBootstrap session={rhexSession} site={rhexSite} />
-        <RootBootstrap />
+        <RootBootstrap themeSettings={themeRuntime} />
         {bodyStartBlocks.map((block) => (
           <AddonRenderBlock
             key={`${block.addon.manifest.id}:${block.key}:body-start`}
@@ -177,14 +157,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             result={block.result}
           />
         ))}
-        <ThemeProvider>
-          <InboxRealtimeProvider
-            key={currentUser?.id ?? "guest"}
-            currentUserId={currentUser?.id ?? null}
-            initialUnreadMessageCount={surfaceSnapshot?.unreadMessageCount ?? 0}
-            initialUnreadNotificationCount={surfaceSnapshot?.unreadNotificationCount ?? 0}
-            messagePromptAudioPath={settings.messagePromptAudioPath}
-          >
+        <ThemeProvider settings={themeRuntime}>
+          <CurrentUserProvider>
+            <CurrentUserInboxProvider messagePromptAudioPath={settings.messagePromptAudioPath}>
             <SiteSettingsProvider
               markdownEmojiMap={settings.markdownEmojiMap}
               markdownImageUploadEnabled={settings.markdownImageUploadEnabled}
@@ -196,28 +171,27 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                   <Suspense fallback={null}>
                     <GlobalNavigationProgress />
                   </Suspense>
-                  <ConfirmProvider>
-                    {children}
-                    <ConditionalSiteFooter hiddenPaths={footerHiddenPaths}>
-                      <>
-                        <SiteFooter />
-                        {bodyEndBlocks.map((block) => (
-                          <AddonRenderBlock
-                            key={`${block.addon.manifest.id}:${block.key}:body-end`}
-                            addonId={block.addon.manifest.id}
-                            blockKey={`${block.addon.manifest.id}:${block.key}:body-end`}
-                            result={block.result}
-                          />
-                        ))}
-                      </>
-                    </ConditionalSiteFooter>
-                    <BackToTopButton />
-                  </ConfirmProvider>
-                  <Toaster richColors position="top-right" />
+                  {children}
+                  <ConditionalSiteFooter hiddenPaths={footerHiddenPaths}>
+                    <>
+                      <SiteFooter />
+                      {bodyEndBlocks.map((block) => (
+                        <AddonRenderBlock
+                          key={`${block.addon.manifest.id}:${block.key}:body-end`}
+                          addonId={block.addon.manifest.id}
+                          blockKey={`${block.addon.manifest.id}:${block.key}:body-end`}
+                          result={block.result}
+                        />
+                      ))}
+                    </>
+                  </ConditionalSiteFooter>
+                  <BackToTopButton />
+                  <DeferredToaster />
                 </TooltipProvider>
               </AddonRuntimeProvider>
             </SiteSettingsProvider>
-          </InboxRealtimeProvider>
+            </CurrentUserInboxProvider>
+          </CurrentUserProvider>
         </ThemeProvider>
 
 

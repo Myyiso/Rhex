@@ -57,7 +57,7 @@ export function SidebarNavigation({
   }
 
   const isDocked = displayMode === "DOCKED"
-  const baseItemClass = "flex items-center gap-3 rounded-md px-4 py-2 text-sm transition-colors"
+  const baseItemClass = "flex items-center gap-3 rounded-md px-4 py-2 text-[0.933rem] leading-5 transition-colors"
   const activeItemClass = "bg-[linear-gradient(135deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.08)_50%,rgba(255,255,255,0.08)_75%,transparent_75%,transparent)] bg-size-[8px_8px] font-medium text-foreground"
   const inactiveItemClass = "text-muted-foreground hover:bg-accent hover:text-foreground"
   const visibleZones = zones.filter((zone) => !zone.hiddenFromSidebar)
@@ -138,8 +138,8 @@ export function SidebarNavigation({
             <div>
               <div className="forum-page-sidebar-section-header mb-2 px-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="forum-page-sidebar-section-title text-xs font-semibold uppercase tracking-wider text-muted-foreground">兴趣节点</h3>
-                  <Link href="/funs" className="forum-page-sidebar-section-link text-xs text-muted-foreground hover:text-foreground">全部</Link>
+                  <h3 className="forum-page-sidebar-section-title text-[0.8rem] font-semibold uppercase tracking-wider text-muted-foreground">兴趣节点</h3>
+                  <Link href="/funs" className="forum-page-sidebar-section-link text-[0.8rem] text-muted-foreground hover:text-foreground">全部</Link>
                   <div className="forum-page-sidebar-section-divider mx-auto hidden h-px w-8 bg-border" />
                 </div>
               </div>

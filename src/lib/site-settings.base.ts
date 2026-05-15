@@ -4,6 +4,7 @@ import type { FooterLinkItem } from "@/lib/shared/config-parsers"
 import type { LeftSidebarDisplayMode, PostSlugGenerationMode } from "@/lib/site-settings-app-state"
 import type { SiteSearchSettings } from "@/lib/site-search-settings"
 import type { SiteHeaderAppLinkItem } from "@/lib/site-header-app-links"
+import type { ThemeRuntimeSettings } from "@/lib/theme"
 
 export type PostLinkDisplayMode = "SLUG" | "ID"
 
@@ -44,6 +45,7 @@ export interface SiteSettingsBaseData {
   footerLinks: FooterLinkItem[]
   headerAppLinks: SiteHeaderAppLinkItem[]
   headerAppIconName: string
+  theme: ThemeRuntimeSettings
   search: SiteSearchSettings
   analyticsCode?: string | null
   friendLinksEnabled: boolean

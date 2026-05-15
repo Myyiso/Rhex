@@ -1,5 +1,6 @@
 import { normalizePostListLoadMode } from "@/lib/post-list-load-mode"
 import type { PostListLoadMode } from "@/lib/post-list-load-mode"
+import { resolveThemeCustomizationSettings } from "@/lib/theme"
 import {
   isRecord,
   normalizeLeftSidebarDisplayMode,
@@ -19,6 +20,7 @@ import type {
   PostSlugGenerationMode,
   PostSlugGenerationSettings,
   SiteBrandingSettings,
+  SiteThemeCustomizationSettings,
 } from "@/lib/site-settings-app-state.types"
 
 export function resolveSiteBrandingSettings(options: {
@@ -57,6 +59,26 @@ export function mergeSiteBrandingSettings(
           ? input.iconPath.trim().slice(0, 1000)
           : "",
     },
+  })
+}
+
+export function resolveThemeCustomizationSettingsFromAppState(options: {
+  appStateJson?: string | null
+} = {}): SiteThemeCustomizationSettings {
+  const siteSettingsState = readSiteSettingsState(options.appStateJson)
+  return resolveThemeCustomizationSettings(siteSettingsState.themeCustomization)
+}
+
+export function mergeThemeCustomizationSettings(
+  appStateJson: string | null | undefined,
+  input: SiteThemeCustomizationSettings,
+) {
+  const siteSettingsState = readSiteSettingsState(appStateJson)
+  const normalized = resolveThemeCustomizationSettings(input)
+
+  return writeSiteSettingsState(appStateJson, {
+    ...siteSettingsState,
+    themeCustomization: normalized,
   })
 }
 

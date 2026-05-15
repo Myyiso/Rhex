@@ -1,7 +1,10 @@
 import Link from "next/link"
 import { Flame, Link2 } from "lucide-react"
+import type { ComponentProps } from "react"
 
 import { HomeAnnouncementPanel } from "@/components/home/home-announcement-panel"
+import { HomeSidebarCurrentUserCard } from "@/components/home/home-sidebar-current-user-card"
+import { HomeSidebarCurrentUserReadingHistory } from "@/components/home/home-sidebar-current-user-reading-history"
 import { PostListLink } from "@/components/post/post-list-link"
 import { ReadingHistoryPanel } from "@/components/post/reading-history-panel"
 import { HomeSiteStatsCard } from "@/components/home/home-site-stats-card"
@@ -13,6 +16,7 @@ import type { FriendLinkItem } from "@/lib/friend-links"
 import { groupHomeSidebarPanels, type HomeSidebarPanelItem } from "@/lib/home-sidebar-layout"
 import type { HomeSidebarStatsData } from "@/lib/home-sidebar-stats"
 import { getPostPath } from "@/lib/post-links"
+import type { SiteSettingsData } from "@/lib/site-settings.types"
 import { cn } from "@/lib/utils"
 import { AddonSlotRenderer } from "@/addons-host"
 
@@ -43,11 +47,39 @@ interface HomeSidebarPanelsProps {
   siteDescription?: string
   siteLogoPath?: string | null
   siteIconPath?: string | null
+  currentUserSettings?: ComponentProps<typeof HomeSidebarCurrentUserCard>["settings"]
   stickyTopClass?: string
   selfServeAdsSurface?: SelfServeAdsSidebarSurface | false
 }
 
-export async function HomeSidebarPanels({ user, hotTopics, postLinkDisplayMode = "SLUG", announcements = [], showAnnouncements = true, friendLinks = [], friendLinksEnabled = false, createPostHref, topPanels = [], middlePanels = [], bottomPanels = [], stats = null, siteName, siteDescription, siteLogoPath, siteIconPath, stickyTopClass = "top-20", selfServeAdsSurface = "global" }: HomeSidebarPanelsProps) {
+export function buildHomeSidebarCurrentUserSettings(settings: SiteSettingsData): HomeSidebarPanelsProps["currentUserSettings"] {
+  return {
+    siteName: settings.siteName,
+    siteDescription: settings.siteDescription,
+    siteLogoPath: settings.siteLogoPath,
+    siteIconPath: settings.siteIconPath,
+    pointName: settings.pointName,
+    checkInEnabled: settings.checkInEnabled,
+    checkInReward: settings.checkInReward,
+    checkInRewardText: settings.checkInRewardText,
+    checkInVip1Reward: settings.checkInVip1Reward,
+    checkInVip1RewardText: settings.checkInVip1RewardText,
+    checkInVip2Reward: settings.checkInVip2Reward,
+    checkInVip2RewardText: settings.checkInVip2RewardText,
+    checkInVip3Reward: settings.checkInVip3Reward,
+    checkInVip3RewardText: settings.checkInVip3RewardText,
+    checkInMakeUpEnabled: settings.checkInMakeUpEnabled,
+    checkInMakeUpCardPrice: settings.checkInMakeUpCardPrice,
+    checkInVipMakeUpCardPrice: settings.checkInVipMakeUpCardPrice,
+    checkInVip1MakeUpCardPrice: settings.checkInVip1MakeUpCardPrice,
+    checkInVip2MakeUpCardPrice: settings.checkInVip2MakeUpCardPrice,
+    checkInVip3MakeUpCardPrice: settings.checkInVip3MakeUpCardPrice,
+    checkInMakeUpCountsTowardStreak: settings.checkInMakeUpCountsTowardStreak,
+    checkInMakeUpOldestDayLimit: settings.checkInMakeUpOldestDayLimit,
+  }
+}
+
+export async function HomeSidebarPanels({ user, hotTopics, postLinkDisplayMode = "SLUG", announcements = [], showAnnouncements = true, friendLinks = [], friendLinksEnabled = false, createPostHref, topPanels = [], middlePanels = [], bottomPanels = [], stats = null, siteName, siteDescription, siteLogoPath, siteIconPath, currentUserSettings, stickyTopClass = "top-20", selfServeAdsSurface = "global" }: HomeSidebarPanelsProps) {
   const selfServeAdsPanel = selfServeAdsSurface ? await getSelfServeAdsSidebarPanel(selfServeAdsSurface) : null
   const sidebarPanels = groupHomeSidebarPanels([
     ...topPanels,
@@ -58,7 +90,11 @@ export async function HomeSidebarPanels({ user, hotTopics, postLinkDisplayMode =
 
   return (
     <div className={cn("home-sidebar-panels mobile-sidebar-stack sticky flex min-w-0 w-full max-w-full flex-col gap-4", stickyTopClass)}>
-      <SidebarUserCard user={user} createPostHref={createPostHref} siteName={siteName} siteDescription={siteDescription} siteLogoPath={siteLogoPath} siteIconPath={siteIconPath} />
+      {currentUserSettings ? (
+        <HomeSidebarCurrentUserCard createPostHref={createPostHref} settings={currentUserSettings} />
+      ) : (
+        <SidebarUserCard user={user} createPostHref={createPostHref} siteName={siteName} siteDescription={siteDescription} siteLogoPath={siteLogoPath} siteIconPath={siteIconPath} />
+      )}
 
 
       <AddonSlotRenderer slot="home.right.top" />
@@ -71,16 +107,16 @@ export async function HomeSidebarPanels({ user, hotTopics, postLinkDisplayMode =
           <Flame className="h-4 w-4 text-orange-500 dark:text-orange-400" />
           <h3 className="text-sm font-semibold">今日热帖</h3>
         </div>
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-1.5">
           {hotTopics.map((topic) => {
             const postPath = getPostPath({ id: topic.id, slug: topic.slug }, { mode: postLinkDisplayMode })
 
             return (
-            <PostListLink key={topic.id} href={postPath} visitedPath={postPath} dimWhenRead className="-mx-1 flex items-start gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-accent/70">
+            <PostListLink key={topic.id} href={postPath} visitedPath={postPath} dimWhenRead className="-mx-1 flex items-start gap-2 rounded-lg px-1 py-1.5 transition-colors hover:bg-accent/70">
               <UserAvatar name={topic.authorName} avatarPath={topic.authorAvatarPath} size="xs" />
               <div className="min-w-0 flex-1">
-                <div title={topic.title} className="truncate whitespace-nowrap text-[13px] leading-snug">{topic.title}</div>
-                <div className="mt-0.5 text-[10px] text-muted-foreground">最后回复：{topic.lastReplyAuthorName ?? topic.authorName} · {topic.lastRepliedAt}</div>
+                <div title={topic.title} className="truncate text-[0.9rem] leading-5">{topic.title}</div>
+                <div className="mt-0.5 text-[0.733rem] leading-4 text-muted-foreground">最后回复：{topic.lastReplyAuthorName ?? topic.authorName} · {topic.lastRepliedAt}</div>
               </div>
             </PostListLink>
           )})}
@@ -124,7 +160,11 @@ export async function HomeSidebarPanels({ user, hotTopics, postLinkDisplayMode =
 
       {stats ? <HomeSiteStatsCard stats={stats} /> : null}
 
-            {user ? <ReadingHistoryPanel variant="sidebar" title="近期访问" limit={5} moreHref="/settings?tab=follows&followTab=history" showOnlyToday requireLoggedIn isLoggedIn hideWhenEmpty stabilizeLayoutOnHydration /> : null}
+            {currentUserSettings ? (
+              <HomeSidebarCurrentUserReadingHistory />
+            ) : user ? (
+              <ReadingHistoryPanel variant="sidebar" title="近期访问" limit={5} moreHref="/settings?tab=follows&followTab=history" showOnlyToday requireLoggedIn isLoggedIn hideWhenEmpty stabilizeLayoutOnHydration />
+            ) : null}
     </div>
   )
 }
