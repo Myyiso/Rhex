@@ -12,7 +12,7 @@ import {
 } from "@/components/admin/admin-filter-card"
 import { AdminSummaryStrip } from "@/components/admin/admin-summary-strip"
 import { AdminUserModal } from "@/components/admin/admin-user-modal"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { UserAvatar } from "@/components/user/user-avatar"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import {
@@ -351,11 +351,9 @@ export function AdminUserList({ data }: AdminUserListProps) {
 function UserProfileCell({ user }: { user: AdminUserListItem }) {
   return (
     <div className="flex items-start gap-3">
-      <Avatar size="sm" className="mt-0.5 rounded-lg">
-        <AvatarFallback className="rounded-lg">
-          {getInitials(user.displayName || user.username)}
-        </AvatarFallback>
-      </Avatar>
+      <div className="mt-0.5">
+        <UserAvatar name={user.displayName || user.username} avatarPath={user.avatarPath} size="xs" />
+      </div>
       <div className="min-w-0">
         <p className="line-clamp-1 text-sm font-medium">{user.displayName}</p>
         <p className="mt-1 text-xs text-muted-foreground">@{user.username}</p>
@@ -510,12 +508,6 @@ function OverviewActionLink({
       <ArrowRight className="h-3.5 w-3.5" />
     </Link>
   )
-}
-
-function getInitials(name: string) {
-  const normalized = name.trim()
-
-  return normalized.slice(0, 2).toUpperCase() || "NA"
 }
 
 function getRoleLabel(role: string) {

@@ -7,6 +7,7 @@ import {
   Flag,
   LayoutGrid,
   Logs,
+  Mail,
   Megaphone,
   MessageSquare,
   Settings,
@@ -23,6 +24,7 @@ export type AdminTabKey =
   | "users"
   | "posts"
   | "comments"
+  | "messages"
   | "structure"
   | "board-applications"
   | "levels"
@@ -83,6 +85,7 @@ export const adminTabs: AdminTabKey[] = [
   "users",
   "posts",
   "comments",
+  "messages",
   "structure",
   "board-applications",
   "levels",
@@ -131,6 +134,7 @@ export const adminTabLabels: Record<AdminTabKey, string> = {
   users: "用户管理",
   posts: "帖子管理",
   comments: "评论管理",
+  messages: "私信记录",
   structure: "版块管理",
   "board-applications": "节点申请",
   levels: "等级系统",
@@ -242,6 +246,15 @@ export const adminNavigation: AdminNavigationItem[] = [
     description: "评论审核、隐藏与恢复。",
     icon: MessageSquare,
     group: "community",
+  },
+  {
+    key: "messages",
+    href: "/admin?tab=messages",
+    label: "私信记录",
+    description: "查看站内私信会话和聊天记录。",
+    icon: Mail,
+    group: "operations",
+    adminOnly: true,
   },
   {
     key: "structure",

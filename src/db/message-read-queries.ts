@@ -78,6 +78,11 @@ export function findConversationListItems(currentUserId: number) {
         },
       },
     },
+    orderBy: {
+      conversation: {
+        lastMessageAt: "desc",
+      },
+    },
     take: 160,
   })
 }

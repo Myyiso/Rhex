@@ -13,6 +13,7 @@ import {
 import { getCurrentUser, type SessionActor } from "@/lib/auth"
 import { getUserCheckInStreakSummary } from "@/lib/check-in-streak-service"
 import { getLocalDateKey } from "@/lib/date-key"
+import { getCachedUnreadMessageCount } from "@/lib/message-redis-cache"
 import { getSiteSettings } from "@/lib/site-settings"
 
 export interface UserSurfaceSnapshot {
@@ -81,7 +82,9 @@ async function readUserSurfaceSnapshot(userId: number, todayKey: string): Promis
     countUserSurfaceFavorites(userId),
     findUserSurfaceCheckInRecord(userId, todayKey),
   ])
-  const unreadMessageCount = settings.messageEnabled ? await getUnreadConversationCount(userId) : 0
+  const unreadMessageCount = settings.messageEnabled
+    ? await getCachedUnreadMessageCount(userId, () => getUnreadConversationCount(userId))
+    : 0
 
   return {
     unreadNotificationCount,

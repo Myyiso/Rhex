@@ -1,7 +1,7 @@
 import { findCommentEffectFeedbackByCommentIds } from "@/db/comment-effect-feedback-queries"
-import { countRootCommentsByPostId, countUserRepliesByPostId, countVisibleCommentsByPostId, findAllFlatCommentIdsByPostId, findAllRootCommentIdsByPostId, findAllVisibleCommentIdsByPostId, findCommentRewardClaimsByCommentIds, findCommentsByIds, findFlatCommentsByPostId, findRepliesByParentIds, findRootCommentsByPostId } from "@/db/comment-queries"
-import { countPostGiftEventsBySender, listCommentGiftStats, listCommentGiftSupportAggregates, listRecentCommentGiftEvents, type PostGiftRecentEventItem, type PostGiftStatItem } from "@/db/post-gift-queries"
-import { countPostTipEventsBySender, findPostTipSupportersByIds, listCommentTipSupportAggregates } from "@/db/post-tip-queries"
+import { countRootCommentsByPostId, countUserRepliesByPostId, countVisibleCommentsByPostId, findCommentRewardClaimsByCommentIds, findCommentsByIds, findFlatCommentPositionLookupsByPostId, findFlatCommentsByPostId, findRepliesByParentIds, findRootCommentsByPostId } from "@/db/comment-queries"
+import { countPostGiftEventsBySenderForCommentIds, listCommentGiftStatsByCommentIds, listCommentGiftSupportAggregatesByCommentIds, listRecentCommentGiftEventsByCommentIds, type PostGiftRecentEventItem, type PostGiftStatItem } from "@/db/post-gift-queries"
+import { countPostTipEventsBySenderForCommentIds, findPostTipSupportersByIds, listCommentTipSupportAggregatesByCommentIds } from "@/db/post-tip-queries"
 import { getAiAgentUserId } from "@/lib/ai-agent"
 import { formatRelativeTime } from "@/lib/formatters"
 import type { AnonymousDisplayIdentity } from "@/lib/post-anonymous"
@@ -462,31 +462,80 @@ export async function getCommentsByPostId(
     }
 
     const attachGiftStats = async <TComment extends SiteCommentItem | SiteCommentReplyItem>(items: TComment[]) => {
-      await Promise.all(items.map(async (item) => {
-        const [giftStats, recentGiftEvents, rawTipSupporters, giftSupporters, rawUsedCount, giftUsedCount] = await Promise.all([
-          listCommentGiftStats(item.id),
-          listRecentCommentGiftEvents(item.id),
-          listCommentTipSupportAggregates(item.id, 20),
-          listCommentGiftSupportAggregates(item.id, 20),
-          viewer?.userId ? countPostTipEventsBySender({ senderId: viewer.userId, commentId: item.id }) : Promise.resolve(0),
-          viewer?.userId ? countPostGiftEventsBySender({ senderId: viewer.userId, commentId: item.id }) : Promise.resolve(0),
-        ])
-        const supporterTotals = new Map<number, number>()
+      const commentIds = Array.from(new Set(items.map((item) => item.id).filter(Boolean)))
+      if (commentIds.length === 0) {
+        return
+      }
 
-        for (const row of rawTipSupporters) {
-          supporterTotals.set(row.senderId, (supporterTotals.get(row.senderId) ?? 0) + row.totalAmount)
-        }
+      const [
+        giftStatsRows,
+        recentGiftEventRows,
+        rawTipSupporters,
+        giftSupporters,
+        rawUsedRows,
+        giftUsedRows,
+      ] = await Promise.all([
+        listCommentGiftStatsByCommentIds(commentIds),
+        listRecentCommentGiftEventsByCommentIds(commentIds),
+        listCommentTipSupportAggregatesByCommentIds(commentIds, 20),
+        listCommentGiftSupportAggregatesByCommentIds(commentIds, 20),
+        viewer?.userId
+          ? countPostTipEventsBySenderForCommentIds({ senderId: viewer.userId, commentIds })
+          : Promise.resolve([]),
+        viewer?.userId
+          ? countPostGiftEventsBySenderForCommentIds({ senderId: viewer.userId, commentIds })
+          : Promise.resolve([]),
+      ])
 
-        for (const row of giftSupporters) {
-          supporterTotals.set(row.senderId, (supporterTotals.get(row.senderId) ?? 0) + row.totalAmount)
-        }
+      const giftStatsByCommentId = new Map<string, PostGiftStatItem[]>()
+      for (const { commentId, ...giftStat } of giftStatsRows) {
+        const current = giftStatsByCommentId.get(commentId) ?? []
+        current.push(giftStat)
+        giftStatsByCommentId.set(commentId, current)
+      }
 
+      const recentGiftEventsByCommentId = new Map<string, PostGiftRecentEventItem[]>()
+      for (const { commentId, ...recentGiftEvent } of recentGiftEventRows) {
+        const current = recentGiftEventsByCommentId.get(commentId) ?? []
+        current.push(recentGiftEvent)
+        recentGiftEventsByCommentId.set(commentId, current)
+      }
+
+      const usedTipCountByCommentId = new Map(rawUsedRows.map((row) => [row.commentId, row.count]))
+      const usedGiftCountByCommentId = new Map(giftUsedRows.map((row) => [row.commentId, row.count]))
+      const supporterTotalsByCommentId = new Map<string, Map<number, number>>()
+
+      const addSupporterTotal = (commentId: string, senderId: number, totalAmount: number) => {
+        const supporterTotals = supporterTotalsByCommentId.get(commentId) ?? new Map<number, number>()
+        supporterTotals.set(senderId, (supporterTotals.get(senderId) ?? 0) + totalAmount)
+        supporterTotalsByCommentId.set(commentId, supporterTotals)
+      }
+
+      for (const row of rawTipSupporters) {
+        addSupporterTotal(row.commentId, row.senderId, row.totalAmount)
+      }
+
+      for (const row of giftSupporters) {
+        addSupporterTotal(row.commentId, row.senderId, row.totalAmount)
+      }
+
+      const supporterRowsByCommentId = new Map<string, Array<{ senderId: number; totalAmount: number }>>()
+      const supporterIds = new Set<number>()
+      for (const [commentId, supporterTotals] of supporterTotalsByCommentId.entries()) {
         const supporterRows = Array.from(supporterTotals.entries())
           .map(([senderId, totalAmount]) => ({ senderId, totalAmount }))
           .sort((left, right) => right.totalAmount - left.totalAmount)
           .slice(0, 20)
-        const supporterProfiles = await findPostTipSupportersByIds(supporterRows.map((row) => row.senderId))
-        const supporterMap = new Map(supporterProfiles.map((profile) => [profile.id, profile]))
+
+        supporterRows.forEach((row) => supporterIds.add(row.senderId))
+        supporterRowsByCommentId.set(commentId, supporterRows)
+      }
+
+      const supporterProfiles = await findPostTipSupportersByIds(Array.from(supporterIds))
+      const supporterMap = new Map(supporterProfiles.map((profile) => [profile.id, profile]))
+
+      for (const item of items) {
+        const supporterRows = supporterRowsByCommentId.get(item.id) ?? []
         const topSupporters: PostTipLeaderboardItem[] = supporterRows.flatMap((row) => {
           const supporter = supporterMap.get(row.senderId)
           if (!supporter) {
@@ -505,26 +554,16 @@ export async function getCommentsByPostId(
         item.tipping = {
           totalCount: item.tipping?.totalCount ?? 0,
           totalPoints: item.tipping?.totalPoints ?? 0,
-          usedCount: rawUsedCount + giftUsedCount,
-          giftStats,
-          recentGiftEvents,
+          usedCount: (usedTipCountByCommentId.get(item.id) ?? 0) + (usedGiftCountByCommentId.get(item.id) ?? 0),
+          giftStats: giftStatsByCommentId.get(item.id) ?? [],
+          recentGiftEvents: recentGiftEventsByCommentId.get(item.id) ?? [],
           topSupporters,
         }
-      }))
+      }
     }
 
-    const allRootComments = await findAllRootCommentIdsByPostId({
-      postId,
-      viewerUserId: viewer?.userId,
-      includeHidden: true,
-      includePendingOwn: Boolean(viewer?.userId),
-      includePendingAll: Boolean(viewer?.isAdmin),
-    })
-    const rootFloorMap = new Map(allRootComments.map((comment, index) => [comment.id, index + 1]))
-    const rootPageMap = new Map(allRootComments.map((comment, index) => [comment.id, Math.floor(index / pageSize) + 1]))
-
     if (viewMode === "flat") {
-      const [total, rawComments, allVisibleComments, allFlatComments] = await Promise.all([
+      const [total, rawComments] = await Promise.all([
         countVisibleCommentsByPostId({
           postId,
           viewerUserId: viewer?.userId,
@@ -542,40 +581,44 @@ export async function getCommentsByPostId(
           includePendingOwn: Boolean(viewer?.userId),
           includePendingAll: Boolean(viewer?.isAdmin),
         }),
-        findAllVisibleCommentIdsByPostId({
-          postId,
-          viewerUserId: viewer?.userId,
-          includeHidden: true,
-          includePendingOwn: Boolean(viewer?.userId),
-          includePendingAll: Boolean(viewer?.isAdmin),
-        }),
-        findAllFlatCommentIdsByPostId({
-          postId,
-          sort,
-          viewerUserId: viewer?.userId,
-          includeHidden: true,
-          includePendingOwn: Boolean(viewer?.userId),
-          includePendingAll: Boolean(viewer?.isAdmin),
-        }),
       ])
 
       const flatComments = rawComments as unknown as RawCommentRecord[]
-      const flatCommentPageMap = new Map<string, number>(
-        allFlatComments.map((comment, index) => [comment.id, Math.floor(index / pageSize) + 1]),
-      )
-      const flatCommentFloorMap = new Map<string, number>(
-        allVisibleComments.map((comment, index) => [comment.id, index + 1]),
-      )
       const commentIds = flatComments.map((comment) => comment.id)
       const parentIds = [...new Set(flatComments.map((comment) => comment.parentId).filter((commentId): commentId is string => Boolean(commentId)))]
+      const replyToCommentIds = [...new Set(flatComments.map((comment) => comment.replyToComment?.id).filter((commentId): commentId is string => Boolean(commentId)))]
+      const flatPositionCommentIds = [...new Set([
+        ...commentIds,
+        ...parentIds,
+        ...replyToCommentIds,
+      ])]
       const missingParentIds = parentIds.filter((parentId) => !flatComments.some((comment) => comment.id === parentId))
-      const parentComments = await findCommentsByIds({
-        commentIds: missingParentIds,
-        viewerUserId: viewer?.userId,
-        includeHidden: true,
-        includePendingOwn: Boolean(viewer?.userId),
-        includePendingAll: Boolean(viewer?.isAdmin),
-      }) as unknown as RawCommentRecord[]
+      const [parentComments, positionLookups, rewardClaims, rewardEffectFeedbackRows] = await Promise.all([
+        findCommentsByIds({
+          commentIds: missingParentIds,
+          viewerUserId: viewer?.userId,
+          includeHidden: true,
+          includePendingOwn: Boolean(viewer?.userId),
+          includePendingAll: Boolean(viewer?.isAdmin),
+        }) as Promise<RawCommentRecord[]>,
+        findFlatCommentPositionLookupsByPostId({
+          postId,
+          rootCommentIds: parentIds,
+          visibleCommentIds: commentIds,
+          flatCommentIds: flatPositionCommentIds,
+          sort,
+          pageSize,
+          viewerUserId: viewer?.userId,
+          includeHidden: true,
+          includePendingOwn: Boolean(viewer?.userId),
+          includePendingAll: Boolean(viewer?.isAdmin),
+        }),
+        findCommentRewardClaimsByCommentIds(postId, commentIds),
+        findCommentEffectFeedbackByCommentIds(postId, commentIds),
+      ])
+      const rootFloorMap = new Map(positionLookups.rootPositions.map((row) => [row.id, row.position]))
+      const flatCommentPageMap = new Map(positionLookups.flatPositions.map((row) => [row.id, row.page]))
+      const flatCommentFloorMap = new Map(positionLookups.visiblePositions.map((row) => [row.id, row.position]))
       const parentCommentEntries: Array<[string, RawCommentRecord]> = [
         ...flatComments
           .filter((comment) => comment.parentId === null)
@@ -583,10 +626,6 @@ export async function getCommentsByPostId(
         ...parentComments.map((comment): [string, RawCommentRecord] => [comment.id, comment]),
       ]
       const parentCommentMap = new Map<string, RawCommentRecord>(parentCommentEntries)
-      const [rewardClaims, rewardEffectFeedbackRows] = await Promise.all([
-        findCommentRewardClaimsByCommentIds(postId, commentIds),
-        findCommentEffectFeedbackByCommentIds(postId, commentIds),
-      ])
 
       const rewardClaimMap = new Map<string, SiteCommentRewardClaim>()
       const rewardEffectFeedbackMap = new Map<string, PostRewardPoolEffectFeedback>()
@@ -701,6 +740,12 @@ export async function getCommentsByPostId(
 
     const rootComments = rawRootComments as unknown as RawCommentRecord[]
     const rootIds = rootComments.map((comment) => comment.id)
+    const floorStart = sort === "newest" ? Math.max(total - (page - 1) * pageSize, 0) : (page - 1) * pageSize + 1
+    const rootFloorMap = new Map<string, number>(rootComments.map((comment, index) => [
+      comment.id,
+      sort === "newest" ? floorStart - index : floorStart + index,
+    ]))
+    const rootPageMap = new Map<string, number>(rootComments.map((comment) => [comment.id, page]))
     const replies = await findRepliesByParentIds({
       postId,
       parentIds: rootIds,
@@ -755,7 +800,6 @@ export async function getCommentsByPostId(
       repliesByParentId.set(parentId, currentReplies)
     })
 
-    const floorStart = sort === "newest" ? Math.max(total - (page - 1) * pageSize, 0) : (page - 1) * pageSize + 1
     const normalizedComments: SiteCommentItem[] = rootComments.map((comment, index) => {
       const repliesForComment = repliesByParentId.get(comment.id) ?? []
       const floor = sort === "newest" ? floorStart - index : floorStart + index

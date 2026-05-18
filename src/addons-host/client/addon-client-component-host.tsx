@@ -8,6 +8,7 @@ import {
   type AddonClientComponent,
   type AddonClientComponentFactory,
 } from "@/addons-host/sdk/client"
+import { resolveAddonClientImportUrl } from "@/addons-host/client/module-url"
 
 interface AddonClientComponentModule {
   Component?: AddonClientComponent
@@ -71,9 +72,14 @@ export function AddonClientComponentHost({
     }
 
     void (async () => {
+      const importUrl = resolveAddonClientImportUrl(moduleUrl)
+      if (!importUrl) {
+        return
+      }
+
       try {
         const loaded = await import(
-          /* webpackIgnore: true */ moduleUrl
+          /* webpackIgnore: true */ importUrl
         ) as AddonClientComponentModule
         const Component = typeof loaded.createComponent === "function"
           ? await loaded.createComponent(sdk)

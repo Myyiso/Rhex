@@ -39,7 +39,6 @@ const themeMeta: Record<ThemePreference, { label: string; icon: typeof Sun }> = 
 
 const themeOptions: ThemePreference[] = ["light", "dark", "system"]
 const themeToggleFallbackLabel = "\u5207\u6362\u4e3b\u9898"
-const themeSwitchingClassNames = ["theme-switching", "theme-switching-fallback"]
 
 export function ThemeToggle() {
   const { theme, setTheme, themeSettings = DEFAULT_THEME_RUNTIME_SETTINGS } = useTheme()
@@ -72,10 +71,6 @@ export function ThemeToggle() {
 
     function handlePointerDown(event: MouseEvent) {
       const target = event.target as Node
-
-      if (themeSwitchingClassNames.some((className) => document.documentElement.classList.contains(className))) {
-        return
-      }
 
       if (!menuRef.current?.contains(target)) {
         setMenuOpen(false)

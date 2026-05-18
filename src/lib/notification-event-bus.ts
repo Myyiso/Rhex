@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { logError } from "@/lib/logger"
 import type { InboxStreamEvent, NotificationCountStreamEvent } from "@/lib/message-types"
 import { connectRedisClient, createRedisConnection, createRedisKey } from "@/lib/redis"
+import { REDIS_KEY_SCOPES } from "@/lib/redis-keys"
 
 type NotificationEventListener = (event: NotificationCountStreamEvent) => void
 
@@ -19,7 +20,7 @@ type GlobalNotificationEventBusState = {
 const globalNotificationEventBus = globalThis as typeof globalThis & GlobalNotificationEventBusState
 
 function getNotificationEventChannel() {
-  return createRedisKey("notification-events", "pubsub")
+  return createRedisKey(...REDIS_KEY_SCOPES.notifications.eventPubSub)
 }
 
 function isNotificationCountEvent(event: InboxStreamEvent): event is NotificationCountStreamEvent {
@@ -44,7 +45,7 @@ class NotificationEventBus {
   }
 
   async publish(event: NotificationCountStreamEvent) {
- 
+    this.publishLocal(event)
 
     try {
       const runtime = getRedisNotificationEventBusRuntime()
@@ -60,7 +61,6 @@ class NotificationEventBus {
           reason: event.reason,
         },
       }, error)
-      this.publishLocal(event)
     }
   }
 
@@ -129,9 +129,10 @@ class RedisNotificationEventBusRuntime {
         try {
           const payload = JSON.parse(rawMessage) as {
             event?: InboxStreamEvent
+            origin?: string
           }
 
-          if (!payload?.event || !isNotificationCountEvent(payload.event)) {
+          if (!payload?.event || payload.origin === this.runtimeId || !isNotificationCountEvent(payload.event)) {
             return
           }
 

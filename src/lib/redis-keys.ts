@@ -24,4 +24,15 @@ export const REDIS_KEY_SCOPES = {
   builtinCaptcha: {
     consume: "builtin-captcha-consume",
   },
+  messages: {
+    eventPubSub: ["message-events", "pubsub"],
+    unreadCount: ["messages", "unread-count"],
+    userCacheVersion: ["messages", "user-cache-version"],
+    conversationList: ["messages", "conversation-list"],
+    siteChatVersion: ["messages", "site-chat-version"],
+    siteChatMessages: ["messages", "site-chat-messages"],
+  },
+  notifications: {
+    eventPubSub: ["notification-events", "pubsub"],
+  },
 } as const

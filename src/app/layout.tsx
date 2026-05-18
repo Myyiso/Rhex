@@ -148,7 +148,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       </head>
       <body style={vipNameColorStyle}>
         <RhexGlobalSdkBootstrap session={rhexSession} site={rhexSite} />
-        <RootBootstrap themeSettings={themeRuntime} />
+        <RootBootstrap />
         {bodyStartBlocks.map((block) => (
           <AddonRenderBlock
             key={`${block.addon.manifest.id}:${block.key}:body-start`}

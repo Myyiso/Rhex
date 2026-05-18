@@ -23,6 +23,7 @@ const ADMIN_MODULE_SEARCH_ITEMS: AdminModuleSearchItem[] = [
   { href: "/admin?tab=users", label: "用户管理", category: "模块", description: "查看用户资料、状态、积分和登录记录。", keywords: ["用户", "账号", "昵称", "改昵称", "修改昵称", "昵称修改", "昵称价格", "禁言", "封禁", "积分", "用户积分", "会员用户", "用户状态"] },
   { href: "/admin?tab=posts", label: "帖子管理", category: "模块", description: "筛选帖子、审核内容、置顶和精华。", keywords: ["帖子", "发帖", "帖子审核", "审核帖子", "精华", "置顶", "下线", "下线帖子", "帖子下线", "离线帖子", "推荐帖子"] },
   { href: "/admin?tab=comments", label: "评论管理", category: "模块", description: "筛选评论、处理审核、上下线回复内容。", keywords: ["评论", "回复", "评论审核", "审核评论", "下线评论", "恢复评论", "待审核评论", "评论管理"] },
+  { href: "/admin?tab=messages", label: "私信记录", category: "模块", description: "查看私信会话、参与用户和聊天内容。", keywords: ["私信", "消息", "聊天记录", "私信记录", "站内信", "会话", "聊天", "私聊", "message"] },
   { href: "/admin?tab=structure", label: "版块管理", category: "模块", description: "维护分区、节点和发帖权限。", keywords: ["版块", "分区", "节点", "导航", "发帖权限", "板块", "栏目", "论坛结构"] },
   { href: "/admin?tab=board-applications", label: "节点申请处理", category: "模块", description: "集中审核前台节点申请，处理通过、驳回与状态流转。", keywords: ["节点申请", "板块申请", "节点申请审核", "审核节点申请", "申请节点", "待审核节点申请", "节点申请处理"] },
   { href: "/admin?tab=levels", label: "等级系统", category: "模块", description: "配置等级、经验和升级规则。", keywords: ["等级", "经验", "升级", "level", "成长值", "等级规则"] },

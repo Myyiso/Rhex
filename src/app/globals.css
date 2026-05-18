@@ -1468,90 +1468,6 @@
     transform: translate(-50%, -50%);
     animation: root-boot-spinner 0.72s linear infinite;
   }
-
-  html.theme-switching::view-transition-group(root) {
-    animation-duration: 0.64s;
-    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  html.theme-switching::view-transition-image-pair(root) {
-    isolation: isolate;
-  }
-
-  html.theme-switching::view-transition-old(root),
-  html.theme-switching::view-transition-new(root) {
-    animation-duration: 0.64s;
-    animation-fill-mode: both;
-    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
-    mix-blend-mode: normal;
-  }
-
-  html.theme-switching::view-transition-old(root) {
-    animation-name: theme-switch-stay;
-  }
-
-  html.theme-switching-to-dark::view-transition-new(root) {
-    animation-name: theme-switch-reveal-left-to-right;
-  }
-
-  html.theme-switching-to-light::view-transition-new(root) {
-    animation-name: theme-switch-reveal-right-to-left;
-  }
-
-  html.theme-switching::view-transition-old(root) {
-    z-index: 0;
-  }
-
-  html.theme-switching::view-transition-new(root) {
-    z-index: 1;
-  }
-
-  @keyframes theme-switch-stay {
-    from,
-    to {
-      clip-path: inset(0);
-    }
-  }
-
-  @keyframes theme-switch-reveal-left-to-right {
-    from {
-      clip-path: inset(0 100% 0 0);
-    }
-
-    to {
-      clip-path: inset(0);
-    }
-  }
-
-  @keyframes theme-switch-reveal-right-to-left {
-    from {
-      clip-path: inset(0 0 0 100%);
-    }
-
-    to {
-      clip-path: inset(0);
-    }
-  }
-
-  html.theme-switching-fallback,
-  html.theme-switching-fallback body {
-    transition:
-      background-color 0.42s ease,
-      color 0.42s ease !important;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html.theme-switching-fallback,
-    html.theme-switching-fallback body {
-      transition: none !important;
-    }
-
-    html.theme-switching::view-transition-group(root),
-    html.theme-switching::view-transition-old(root),
-    html.theme-switching::view-transition-new(root) {
-      animation: none !important;
-    }
-  }
   .theme {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
@@ -1576,6 +1492,29 @@
   }
   html {
     @apply font-sans;
+  }
+  @supports (-webkit-touch-callout: none) {
+    @media (max-width: 767px) {
+      input:not([type]),
+      input[type='date'],
+      input[type='datetime-local'],
+      input[type='email'],
+      input[type='month'],
+      input[type='number'],
+      input[type='password'],
+      input[type='search'],
+      input[type='tel'],
+      input[type='text'],
+      input[type='time'],
+      input[type='url'],
+      input[type='week'],
+      select,
+      textarea,
+      [contenteditable='true'],
+      [role='textbox'] {
+        font-size: 16px !important;
+      }
+    }
   }
   .vip-name-color-normal {
     color: var(--vip-name-color-normal) !important;

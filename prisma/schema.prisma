@@ -1104,6 +1104,8 @@ model Comment {
   @@index([replyToCommentId])
   @@index([postId, status, createdAt])
   @@index([postId, status, parentId, createdAt])
+  @@index([postId, status, parentId, isPinnedByAuthor, createdAt, id], map: "comment_thread_order_idx")
+  @@index([postId, status, isPinnedByAuthor, createdAt, id], map: "comment_flat_order_idx")
   @@index([reviewedById, reviewedAt])
 }
 
@@ -2326,6 +2328,7 @@ model PostGiftEvent {
   @@index([senderId, createdAt])
   @@index([receiverId, createdAt])
   @@index([giftId, createdAt])
+  @@index([commentId, giftId, createdAt], map: "post_gift_comment_gift_created_idx")
   @@index([postId, senderId, createdAt])
   @@index([commentId, senderId, createdAt])
 }

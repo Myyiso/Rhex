@@ -13,10 +13,16 @@ import type {
   ProfileFormState,
 } from "@/components/admin/user-modal/types"
 
+interface AvatarUploadResult {
+  urlPath: string
+}
+
 function createInitialProfileState(user: AdminUserListItem): ProfileFormState {
   return {
     draft: buildFallbackProfile(user),
     feedback: "",
+    avatarUploading: false,
+    avatarFeedback: "",
     adminNote: "",
     noteFeedback: "",
   }
@@ -146,6 +152,107 @@ export function useUserActions({
         ...current,
         adminNote: result.ok ? "" : current.adminNote,
         noteFeedback: result.message,
+      }))
+      if (result.ok) {
+        refreshData()
+      }
+    })
+  }
+
+  async function uploadAvatar(file: File | null) {
+    if (!file) {
+      return
+    }
+
+    const previousAvatarPath = profileState.draft.avatarPath
+    setProfileState((current) => ({
+      ...current,
+      avatarUploading: true,
+      avatarFeedback: "",
+    }))
+
+    try {
+      const formData = new FormData()
+      formData.set("folder", "avatars")
+      formData.set("file", file)
+
+      const uploadResponse = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      })
+      const uploadResult = await parseResponse<AvatarUploadResult>(uploadResponse)
+      const avatarPath = uploadResult?.data?.urlPath ?? ""
+
+      if (!uploadResponse.ok || !avatarPath) {
+        setProfileState((current) => ({
+          ...current,
+          avatarUploading: false,
+          avatarFeedback: uploadResult?.message ?? "头像上传失败",
+        }))
+        return
+      }
+
+      setProfileState((current) => ({
+        ...current,
+        draft: {
+          ...current.draft,
+          avatarPath,
+        },
+      }))
+
+      const result = await submitAdminAction({
+        action: "user.avatar.update",
+        targetId: String(user.id),
+        avatarPath,
+        message: "后台更新用户头像",
+      })
+
+      setProfileState((current) => ({
+        ...current,
+        avatarUploading: false,
+        draft: {
+          ...current.draft,
+          avatarPath: result.ok ? avatarPath : previousAvatarPath,
+        },
+        avatarFeedback: result.message,
+      }))
+      if (result.ok) {
+        refreshData()
+      }
+    } catch {
+      setProfileState((current) => ({
+        ...current,
+        avatarUploading: false,
+        draft: {
+          ...current.draft,
+          avatarPath: previousAvatarPath,
+        },
+        avatarFeedback: "头像上传失败",
+      }))
+    }
+  }
+
+  function clearAvatar() {
+    setProfileState((current) => ({ ...current, avatarFeedback: "" }))
+    if (typeof window !== "undefined" && !window.confirm("确认删除该用户头像？")) {
+      return
+    }
+
+    startTransition(async () => {
+      const result = await submitAdminAction({
+        action: "user.avatar.update",
+        targetId: String(user.id),
+        avatarPath: "",
+        message: "后台删除用户头像",
+      })
+
+      setProfileState((current) => ({
+        ...current,
+        draft: {
+          ...current.draft,
+          avatarPath: result.ok ? "" : current.draft.avatarPath,
+        },
+        avatarFeedback: result.message,
       }))
       if (result.ok) {
         refreshData()
@@ -390,6 +497,8 @@ export function useUserActions({
       setAdminNote: (value: string) => {
         setProfileState((current) => ({ ...current, adminNote: value }))
       },
+      uploadAvatar,
+      clearAvatar,
       saveProfile,
       saveNote,
     },

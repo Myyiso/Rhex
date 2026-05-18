@@ -3,11 +3,13 @@ import bcrypt from "bcryptjs"
 import { BadgeGrantSource, Prisma, UserRole, UserStatus } from "@/db/types"
 import {
   demoteUserToUser,
+  findUserAvatarProfile,
   findUserUsername,
   findUserStatus,
   findUserVipState,
   promoteUserToAdmin,
   updateUserBasicProfile,
+  updateUserAvatarPath,
   updateUserPasswordHash,
   updateUserPoints,
   updateUserRole,
@@ -37,6 +39,7 @@ import { ensureCanModerateUser, isScopedModerator, isSiteAdmin } from "@/lib/mod
 import { getServerSiteSettings } from "@/lib/site-settings"
 import { findUsernameSensitiveWord } from "@/lib/username-sensitive-words"
 import { mergeUserProfileSettings } from "@/lib/user-profile-settings"
+import { revalidateUserSurfaceCache } from "@/lib/user-surface"
 import { validateProfilePayload } from "@/lib/validators"
 import { normalizeConfigurableVipLevel } from "@/lib/vip-status"
 
@@ -52,6 +55,12 @@ function buildProfileUpdateDetail(context: AdminActionContext) {
   return changedFields.length > 0
     ? `管理员更新用户资料（${changedFields.join("、")}）`
     : "管理员更新用户资料"
+}
+
+function buildAvatarUpdateDetail(context: AdminActionContext) {
+  return readAdminActionString(context.body, "avatarPath")
+    ? "管理员更新用户头像"
+    : "管理员删除用户头像"
 }
 
 type UserStatusRecord = NonNullable<Awaited<ReturnType<typeof findUserStatus>>>
@@ -166,6 +175,25 @@ export const adminUserActionHandlers: Record<string, AdminActionDefinition> = {
     if (!isSiteAdmin(context.actor)) apiError(403, "仅管理员可记录用户备注")
     await writeAdminActionLog(context, adminUserActionHandlers["user.profile.note"].metadata)
     return { message: "备注已记录" }
+  }),
+  "user.avatar.update": defineAdminAction({ targetType: "USER", buildDetail: buildAvatarUpdateDetail }, async (context) => {
+    if (!isSiteAdmin(context.actor)) apiError(403, "仅管理员可修改用户头像")
+    const userId = normalizePositiveUserId(context.targetId)
+    if (!userId) apiError(400, "用户标识不合法")
+
+    const avatarPath = readAdminActionString(context.body, "avatarPath")
+    if (avatarPath.length > 1024) {
+      apiError(400, "头像地址过长")
+    }
+
+    const user = await findUserAvatarProfile(userId)
+    if (!user) apiError(404, "用户不存在")
+
+    await updateUserAvatarPath(userId, avatarPath || null)
+    revalidateUserSurfaceCache(userId)
+
+    await writeAdminActionLog(context, adminUserActionHandlers["user.avatar.update"].metadata)
+    return { message: avatarPath ? `用户 @${user.username} 的头像已更新` : `用户 @${user.username} 的头像已删除` }
   }),
   "user.profile.update": defineAdminAction({ targetType: "USER", buildDetail: buildProfileUpdateDetail }, async (context) => {
     if (!isSiteAdmin(context.actor)) apiError(403, "仅管理员可修改基础资料")

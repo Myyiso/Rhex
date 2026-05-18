@@ -3,12 +3,13 @@
 import Link from "next/link"
 import type { ChangeEvent, ClipboardEvent, KeyboardEvent } from "react"
 import { useEffect, useMemo, useRef, useState, useTransition } from "react"
-import { ChevronLeft, ChevronUp, ImageIcon, MessageSquareMore, Paperclip, Send, SmilePlus } from "lucide-react"
+import { ChevronLeft, ChevronUp, ImageIcon, MessageSquareMore, Paperclip, Send, SmilePlus, Trash2 } from "lucide-react"
 
 import { EmojiPicker } from "@/components/emoji-picker"
 import { MessageBubbleContent } from "@/components/message/message-bubble-content"
 import { useMarkdownEmojiMap } from "@/components/site-settings-provider"
 import { Button } from "@/components/ui/rbutton"
+import { Tooltip } from "@/components/ui/tooltip"
 import { UserAvatar } from "@/components/user/user-avatar"
 import { UserProfilePreviewCardTrigger } from "@/components/user/user-profile-preview-card-trigger"
 import { createSiteChatParticipant } from "@/lib/site-chat"
@@ -30,6 +31,9 @@ interface MessageThreadPanelProps {
   loadingConversation?: boolean
   conversationError?: string
   onMessageSent: (payload: LocalMessageSentPayload) => void
+  canManageSiteChatMessages?: boolean
+  deletingMessageId?: string
+  onDeleteMessage?: (messageId: string) => void
   onLoadHistory: () => void
   loadingHistory: boolean
   historyError: string
@@ -45,6 +49,9 @@ export function MessageThreadPanel({
   loadingConversation = false,
   conversationError = "",
   onMessageSent,
+  canManageSiteChatMessages = false,
+  deletingMessageId = "",
+  onDeleteMessage,
   onLoadHistory,
   loadingHistory,
   historyError,
@@ -125,6 +132,9 @@ export function MessageThreadPanel({
       messageImageUploadEnabled={messageImageUploadEnabled}
       messageFileUploadEnabled={messageFileUploadEnabled}
       onMessageSent={onMessageSent}
+      canManageSiteChatMessages={canManageSiteChatMessages}
+      deletingMessageId={deletingMessageId}
+      onDeleteMessage={onDeleteMessage}
       onLoadHistory={onLoadHistory}
       loadingHistory={loadingHistory}
       historyError={historyError}
@@ -142,6 +152,9 @@ function MessageThreadPanelContent({
   messageImageUploadEnabled,
   messageFileUploadEnabled,
   onMessageSent,
+  canManageSiteChatMessages,
+  deletingMessageId,
+  onDeleteMessage,
   onLoadHistory,
   loadingHistory,
   historyError,
@@ -155,6 +168,9 @@ function MessageThreadPanelContent({
   messageImageUploadEnabled: boolean
   messageFileUploadEnabled: boolean
   onMessageSent: (payload: LocalMessageSentPayload) => void
+  canManageSiteChatMessages: boolean
+  deletingMessageId: string
+  onDeleteMessage?: (messageId: string) => void
   onLoadHistory: () => void
   loadingHistory: boolean
   historyError: string
@@ -478,6 +494,8 @@ function MessageThreadPanelContent({
 
         {conversation.messages.map((message) => {
           const shouldShowSenderName = conversation.kind === "SITE_CHAT"
+          const canDeleteMessage = canManageSiteChatMessages && conversation.kind === "SITE_CHAT" && Boolean(onDeleteMessage)
+          const deletingThisMessage = deletingMessageId === message.id
           const senderAvatar = (
             <ChatMessageAvatar
               message={message}
@@ -511,7 +529,24 @@ function MessageThreadPanelContent({
                     isMine={message.isMine}
                   />
                 </div>
-                <p className={cn("mt-2 text-xs text-muted-foreground", message.isMine ? "text-right" : "text-left")}>{message.createdAt}</p>
+                <div className={cn("mt-2 flex items-center gap-1.5", message.isMine ? "flex-row-reverse" : "flex-row")}>
+                  <p className="text-xs text-muted-foreground">{message.createdAt}</p>
+                  {canDeleteMessage ? (
+                    <Tooltip content="删除消息">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="删除消息"
+                        onClick={() => onDeleteMessage?.(message.id)}
+                        disabled={deletingThisMessage}
+                      >
+                        <Trash2 data-icon="inline-start" />
+                      </Button>
+                    </Tooltip>
+                  ) : null}
+                </div>
               </div>
               {message.isMine ? senderAvatar : null}
             </div>

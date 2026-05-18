@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { logError } from "@/lib/logger"
 import type { InboxSnapshotStreamEvent, MessageStreamEvent } from "@/lib/message-types"
 import { connectRedisClient, createRedisConnection, createRedisKey } from "@/lib/redis"
+import { REDIS_KEY_SCOPES } from "@/lib/redis-keys"
 
 export type { MessageStreamEvent } from "@/lib/message-types"
 
@@ -12,6 +13,7 @@ export interface MessageStreamCursor {
 }
 
 type MessageEventListener = (event: MessageStreamEvent) => void
+type MessageEventTargets = Set<number> | "all"
 
 interface MessageEventSubscriber {
   userId: number
@@ -26,10 +28,14 @@ type GlobalMessageEventBusState = {
 const globalMessageEventBus = globalThis as typeof globalThis & GlobalMessageEventBusState
 
 function getMessageEventChannel() {
-  return createRedisKey("message-events", "pubsub")
+  return createRedisKey(...REDIS_KEY_SCOPES.messages.eventPubSub)
 }
 
-function getEventTargetUserIds(event: MessageStreamEvent) {
+function getEventTargets(event: MessageStreamEvent): MessageEventTargets {
+  if ("broadcast" in event && event.broadcast === "site-chat") {
+    return "all"
+  }
+
   if ("targetUserIds" in event && Array.isArray(event.targetUserIds) && event.targetUserIds.length > 0) {
     return new Set(event.targetUserIds.filter((userId): userId is number => Number.isFinite(userId)))
   }
@@ -69,7 +75,7 @@ class MessageEventBus {
   }
 
   async publish(event: MessageStreamEvent) {
-
+    this.publishLocal(event)
 
     try {
       const runtime = getRedisMessageEventBusRuntime()
@@ -84,18 +90,17 @@ class MessageEventBus {
           messageId: "messageId" in event ? event.messageId : undefined,
         },
       }, error)
-      this.publishLocal(event)
     }
   }
 
   publishLocal(event: MessageStreamEvent) {
-    const targetUserIds = getEventTargetUserIds(event)
-    if (targetUserIds.size === 0) {
+    const targets = getEventTargets(event)
+    if (targets !== "all" && targets.size === 0) {
       return
     }
 
     for (const subscriber of this.subscribers.values()) {
-      if (!targetUserIds.has(subscriber.userId)) {
+      if (targets !== "all" && !targets.has(subscriber.userId)) {
         continue
       }
 
@@ -158,9 +163,10 @@ class RedisMessageEventBusRuntime {
         try {
           const payload = JSON.parse(rawMessage) as {
             event?: MessageStreamEvent
+            origin?: string
           }
 
-          if (!payload?.event) {
+          if (!payload?.event || payload.origin === this.runtimeId) {
             return
           }
 
@@ -244,7 +250,11 @@ export function isMessageStreamCursorAfter(cursor: MessageStreamCursor, baseline
   return compareMessageStreamCursor(cursor, baseline) > 0
 }
 
-export function getMessageStreamCursorFromEvent(event: { messageId?: string; occurredAt?: string }) {
+export function getMessageStreamCursorFromEvent(event: { type?: string; messageId?: string; occurredAt?: string }) {
+  if (event.type && event.type !== "message.created") {
+    return null
+  }
+
   if (!event.messageId || !event.occurredAt) {
     return null
   }

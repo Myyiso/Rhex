@@ -38,6 +38,8 @@ export function applyInboxStreamEvent(
         }
       }
       return previous
+    case "message.deleted":
+      return previous
     case "notification.count":
       if (activeUserId && event.userId === activeUserId) {
         return {

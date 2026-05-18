@@ -4,6 +4,7 @@ import { countUnreadNotifications } from "@/db/notification-read-queries"
 import { ConversationKind } from "@/db/types"
 import { createUserRouteHandler } from "@/lib/api-route"
 import { formatMonthDayTime } from "@/lib/formatters"
+import { getCachedUnreadMessageCount } from "@/lib/message-redis-cache"
 import {
   buildInboxSnapshotPayload,
   buildCursorPayload,
@@ -45,7 +46,7 @@ async function getInboxSnapshot(userId: number) {
     }
   }
 
-  const unreadMessageCount = await getUnreadConversationCount(userId)
+  const unreadMessageCount = await getCachedUnreadMessageCount(userId, () => getUnreadConversationCount(userId))
 
   return {
     unreadMessageCount,

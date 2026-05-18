@@ -175,6 +175,7 @@ export async function getAdminUserDetail(userId: number): Promise<AdminUserDetai
     username: user.username,
     displayName: user.nickname ?? user.username,
     nickname: user.nickname ?? null,
+    avatarPath: user.avatarPath ?? null,
     role: user.role,
     status: user.status,
     email: user.email ?? null,
@@ -196,6 +197,7 @@ export async function getAdminUserDetail(userId: number): Promise<AdminUserDetai
     bio: user.bio ?? "",
     editableProfile: {
       nickname: user.nickname ?? "",
+      avatarPath: user.avatarPath ?? "",
       email: user.email ?? "",
       phone: user.phone ?? "",
       bio: user.bio ?? "",

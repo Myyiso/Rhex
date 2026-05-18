@@ -43,6 +43,8 @@ export interface AdminUserMetricItem {
 export interface ProfileFormState {
   draft: AdminUserEditableProfile
   feedback: string
+  avatarUploading: boolean
+  avatarFeedback: string
   adminNote: string
   noteFeedback: string
 }

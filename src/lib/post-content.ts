@@ -178,6 +178,11 @@ export function getPublicPostContentText(rawContent: string) {
     .trim()
 }
 
+// AI prompts must only receive content visible without unlock checks.
+export function getAiSafePostContentText(rawContent: string) {
+  return getPublicPostContentText(rawContent)
+}
+
 export function getAllPostContentText(rawContent: string) {
   return parsePostContentDocument(rawContent)
     .blocks

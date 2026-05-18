@@ -1,8 +1,12 @@
 "use client"
 
+import { useRef } from "react"
+import { Trash2, Upload } from "lucide-react"
+
 import type { UserActionsState } from "@/components/admin/user-modal/hooks/use-user-actions"
 import { Field, SelectField, TextAreaField } from "@/components/admin/user-modal/components/FormFields"
 import { Button } from "@/components/ui/button"
+import { UserAvatar } from "@/components/user/user-avatar"
 
 export function ProfileTab({
   profile,
@@ -11,12 +15,63 @@ export function ProfileTab({
   profile: UserActionsState["profile"]
   isPending: boolean
 }) {
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const avatarName = profile.state.draft.nickname.trim() || "用户"
+  const hasAvatar = Boolean(profile.state.draft.avatarPath.trim())
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
       <section className="rounded-xl border border-border p-4">
         <div className="flex flex-col gap-1">
           <h4 className="text-sm font-semibold">基础资料</h4>
           <p className="text-xs text-muted-foreground">运营可直接维护昵称、邮箱、手机号、简介与介绍。</p>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+          <UserAvatar name={avatarName} avatarPath={profile.state.draft.avatarPath} size="lg" />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">用户头像</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {hasAvatar ? profile.state.draft.avatarPath : "当前未设置头像"}
+              </p>
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null
+                void profile.uploadAvatar(file)
+                event.target.value = ""
+              }}
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPending || profile.state.avatarUploading}
+                className="rounded-full px-3 text-xs"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                <Upload data-icon="inline-start" />
+                {profile.state.avatarUploading ? "上传中..." : "更改头像"}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={isPending || profile.state.avatarUploading || !hasAvatar}
+                className="rounded-full px-3 text-xs"
+                onClick={profile.clearAvatar}
+              >
+                <Trash2 data-icon="inline-start" />
+                删除头像
+              </Button>
+            </div>
+            {profile.state.avatarFeedback ? <p className="mt-2 text-xs text-muted-foreground">{profile.state.avatarFeedback}</p> : null}
+          </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Field label="昵称" value={profile.state.draft.nickname} onChange={(value) => profile.setField("nickname", value)} />

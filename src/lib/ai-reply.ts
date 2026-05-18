@@ -11,7 +11,7 @@ import { apiError } from "@/lib/api-route"
 import { enqueueBackgroundJob, registerBackgroundJobHandler } from "@/lib/background-jobs"
 import { enforceSensitiveText } from "@/lib/content-safety"
 import { enqueuePostFollowCommentNotifications } from "@/lib/follow-notifications"
-import { getAllPostContentText } from "@/lib/post-content"
+import { getAiSafePostContentText } from "@/lib/post-content"
 import { stripPostContentUserLinks } from "@/lib/post-mentions"
 import { extractMentionTexts, stripUserLinkTokens } from "@/lib/mentions"
 import { logError, logInfo } from "@/lib/logger"
@@ -245,25 +245,33 @@ function getPostVisibleText(post: {
   content: string
   appendedContent: string | null
 }) {
-  const mainContent = getAllPostContentText(stripPostContentUserLinks(post.content))
-  const appendedContent = post.appendedContent ? stripUserLinkTokens(post.appendedContent) : ""
+  const mainContent = getAiSafePostContentText(stripPostContentUserLinks(post.content))
+  const appendedContent = post.appendedContent
+    ? getAiSafePostContentText(stripUserLinkTokens(post.appendedContent))
+    : ""
   return [mainContent, appendedContent].filter(Boolean).join("\n\n")
 }
 
 function getPostMainText(content: string) {
-  return getAllPostContentText(stripPostContentUserLinks(content))
+  return getAiSafePostContentText(stripPostContentUserLinks(content))
+}
+
+function getPostMentionTextForAi(post: {
+  content: string
+  appendedContent: string | null
+}) {
+  const mainContent = getAiSafePostContentText(post.content)
+  const appendedContent = post.appendedContent ? getAiSafePostContentText(post.appendedContent) : ""
+  return [mainContent, appendedContent].filter(Boolean).join("\n\n")
 }
 
 function doesPostStillMentionAgent(post: { content: string; appendedContent: string | null }, agentUser: { username: string; nickname: string | null }) {
-  if (containsUserLinkToken(post.content, agentUser.username)) {
+  const mentionText = getPostMentionTextForAi(post)
+  if (containsUserLinkToken(mentionText, agentUser.username)) {
     return true
   }
 
-  if (post.appendedContent && containsUserLinkToken(post.appendedContent, agentUser.username)) {
-    return true
-  }
-
-  return doesPlainTextMentionUser(getPostVisibleText(post), agentUser)
+  return doesPlainTextMentionUser(stripUserLinkTokens(mentionText), agentUser)
 }
 
 function doesCommentStillMentionAgent(commentContent: string, agentUser: { username: string; nickname: string | null }) {
@@ -318,6 +326,9 @@ function buildPostReplyUserPrompt(task: NonNullable<AiReplyTaskWorkerRecord>) {
 
   const postAuthorName = buildDisplayName(task.post.author, task.post.isAnonymous)
   const postVisibleText = truncateText(getPostMainText(task.post.content), AI_REPLY_MAX_CONTEXT_CHARS)
+  const appendedContentText = task.post.appendedContent
+    ? truncateText(getAiSafePostContentText(stripUserLinkTokens(task.post.appendedContent)), AI_REPLY_MAX_CONTEXT_CHARS)
+    : ""
 
   return [
     "论坛帖子上下文：",
@@ -326,8 +337,8 @@ function buildPostReplyUserPrompt(task: NonNullable<AiReplyTaskWorkerRecord>) {
     `发帖用户：${buildDisplayName(task.triggerUser)}`,
     `帖子标题：${task.post.title}`,
     `帖子正文：\n${postVisibleText || "（无正文）"}`,
-    task.post.appendedContent
-      ? `帖子补充：\n${truncateText(stripUserLinkTokens(task.post.appendedContent), AI_REPLY_MAX_CONTEXT_CHARS)}`
+    appendedContentText
+      ? `帖子补充：\n${appendedContentText}`
       : "",
     "请基于整帖语义回复。直接输出评论正文，不要带标题或额外说明。",
   ].filter(Boolean).join("\n\n")

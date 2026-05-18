@@ -1,5 +1,4 @@
-import type { Prisma } from "@/db/types"
-import { CommentStatus, NotificationType } from "@/db/types"
+import { CommentStatus, NotificationType, Prisma } from "@/db/types"
 import { incrementBoardTreasuryPoints } from "@/db/board-treasury-queries"
 import { prisma } from "@/db/client"
 import { applyPointDelta, type PreparedPointDelta } from "@/lib/point-center"
@@ -11,6 +10,23 @@ import { POINT_LOG_EVENT_TYPES } from "@/lib/point-log-events"
 const commentViewerLikeSelect = {
   userId: true,
 } as const
+
+function parseNumberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === "bigint") {
+    return Number(value)
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return 0
+}
 
 const commentDisplayedBadgesInclude = {
   where: {
@@ -220,6 +236,226 @@ function buildCommentBlockVisibilityWhere(viewerUserId?: number): Prisma.Comment
         },
       },
     },
+  }
+}
+
+type CommentRankAlias = "c" | "t"
+type CommentPositionOrder = "root-oldest" | "visible-oldest" | "flat-oldest" | "flat-newest"
+
+export interface CommentPositionRow {
+  id: string
+  position: number
+  page: number
+}
+
+export interface FlatCommentPositionLookup {
+  rootPositions: CommentPositionRow[]
+  visiblePositions: CommentPositionRow[]
+  flatPositions: CommentPositionRow[]
+}
+
+interface CommentPositionQueryParams {
+  postId: string
+  commentIds: string[]
+  pageSize: number
+  order: CommentPositionOrder
+  parentOnly?: boolean
+  viewerUserId?: number
+  includeHidden?: boolean
+  includePendingOwn?: boolean
+  includePendingAll?: boolean
+}
+
+function commentRankStatusColumnSql(alias: CommentRankAlias) {
+  return alias === "c" ? Prisma.sql`c."status"` : Prisma.sql`t."status"`
+}
+
+function commentRankUserIdColumnSql(alias: CommentRankAlias) {
+  return alias === "c" ? Prisma.sql`c."userId"` : Prisma.sql`t."userId"`
+}
+
+function buildCommentRankVisibilitySql(alias: CommentRankAlias, params: {
+  viewerUserId?: number
+  includeHidden?: boolean
+  includePendingOwn?: boolean
+  includePendingAll?: boolean
+}) {
+  const statusColumn = commentRankStatusColumnSql(alias)
+  const userIdColumn = commentRankUserIdColumnSql(alias)
+  const visibleStatusSql = params.includeHidden
+    ? Prisma.sql`${statusColumn} IN ('NORMAL', 'HIDDEN')`
+    : Prisma.sql`${statusColumn} = 'NORMAL'`
+
+  if (params.includePendingAll) {
+    return Prisma.sql`(${visibleStatusSql} OR ${statusColumn} = 'PENDING')`
+  }
+
+  if (params.includePendingOwn && params.viewerUserId) {
+    return Prisma.sql`(${visibleStatusSql} OR (${statusColumn} = 'PENDING' AND ${userIdColumn} = ${params.viewerUserId}))`
+  }
+
+  return visibleStatusSql
+}
+
+function buildCommentRankBlockVisibilitySql(alias: CommentRankAlias, viewerUserId?: number) {
+  if (!viewerUserId) {
+    return Prisma.empty
+  }
+
+  const userIdColumn = commentRankUserIdColumnSql(alias)
+
+  return Prisma.sql`
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "UserBlock" AS block_source
+      WHERE block_source."blockerId" = ${userIdColumn}
+        AND block_source."blockedId" = ${viewerUserId}
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "UserBlock" AS block_target
+      WHERE block_target."blockerId" = ${viewerUserId}
+        AND block_target."blockedId" = ${userIdColumn}
+    )
+  `
+}
+
+function buildCommentRankWhereSql(alias: CommentRankAlias, params: CommentPositionQueryParams) {
+  const postIdColumn = alias === "c" ? Prisma.sql`c."postId"` : Prisma.sql`t."postId"`
+  const parentIdColumn = alias === "c" ? Prisma.sql`c."parentId"` : Prisma.sql`t."parentId"`
+
+  return Prisma.sql`
+    ${postIdColumn} = ${params.postId}
+    AND ${buildCommentRankVisibilitySql(alias, params)}
+    ${params.parentOnly ? Prisma.sql`AND ${parentIdColumn} IS NULL` : Prisma.empty}
+    ${buildCommentRankBlockVisibilitySql(alias, params.viewerUserId)}
+  `
+}
+
+function buildCommentPositionOrderSql(order: CommentPositionOrder) {
+  if (order === "visible-oldest") {
+    return Prisma.sql`
+      (
+        c."createdAt" < t."createdAt"
+        OR (c."createdAt" = t."createdAt" AND c."id" <= t."id")
+      )
+    `
+  }
+
+  const samePinnedOldestSql = Prisma.sql`
+    c."isPinnedByAuthor" = t."isPinnedByAuthor"
+    AND (
+      c."createdAt" < t."createdAt"
+      OR (c."createdAt" = t."createdAt" AND c."id" <= t."id")
+    )
+  `
+
+  if (order === "flat-newest") {
+    return Prisma.sql`
+      (
+        (c."isPinnedByAuthor" = TRUE AND t."isPinnedByAuthor" = FALSE)
+        OR (
+          c."isPinnedByAuthor" = t."isPinnedByAuthor"
+          AND (
+            c."createdAt" > t."createdAt"
+            OR (c."createdAt" = t."createdAt" AND c."id" >= t."id")
+          )
+        )
+      )
+    `
+  }
+
+  return Prisma.sql`
+    (
+      (c."isPinnedByAuthor" = TRUE AND t."isPinnedByAuthor" = FALSE)
+      OR (${samePinnedOldestSql})
+    )
+  `
+}
+
+async function findCommentPositionsByPostId(params: CommentPositionQueryParams): Promise<CommentPositionRow[]> {
+  const normalizedCommentIds = Array.from(new Set(params.commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const normalizedPageSize = Math.min(Math.max(1, params.pageSize), 50)
+  const rows = await prisma.$queryRaw<Array<{
+    id: string
+    position: number | string | bigint
+    page: number | string | bigint
+  }>>(Prisma.sql`
+    WITH target AS (
+      SELECT
+        t."id",
+        t."createdAt",
+        t."isPinnedByAuthor"
+      FROM "Comment" AS t
+      WHERE ${buildCommentRankWhereSql("t", params)}
+        AND t."id" IN (${Prisma.join(normalizedCommentIds)})
+    )
+    SELECT
+      t."id",
+      COUNT(c."id")::int AS "position",
+      CEIL(COUNT(c."id")::numeric / ${normalizedPageSize})::int AS "page"
+    FROM target AS t
+    INNER JOIN "Comment" AS c
+      ON ${buildCommentRankWhereSql("c", params)}
+      AND ${buildCommentPositionOrderSql(params.order)}
+    GROUP BY t."id"
+  `)
+
+  return rows.map((row) => ({
+    id: row.id,
+    position: parseNumberValue(row.position),
+    page: parseNumberValue(row.page),
+  }))
+}
+
+export async function findFlatCommentPositionLookupsByPostId(params: {
+  postId: string
+  rootCommentIds: string[]
+  visibleCommentIds: string[]
+  flatCommentIds: string[]
+  sort: "oldest" | "newest"
+  pageSize: number
+  viewerUserId?: number
+  includeHidden?: boolean
+  includePendingOwn?: boolean
+  includePendingAll?: boolean
+}): Promise<FlatCommentPositionLookup> {
+  const sharedParams = {
+    postId: params.postId,
+    pageSize: params.pageSize,
+    viewerUserId: params.viewerUserId,
+    includeHidden: params.includeHidden,
+    includePendingOwn: params.includePendingOwn,
+    includePendingAll: params.includePendingAll,
+  }
+
+  const [rootPositions, visiblePositions, flatPositions] = await Promise.all([
+    findCommentPositionsByPostId({
+      ...sharedParams,
+      commentIds: params.rootCommentIds,
+      order: "root-oldest",
+      parentOnly: true,
+    }),
+    findCommentPositionsByPostId({
+      ...sharedParams,
+      commentIds: params.visibleCommentIds,
+      order: "visible-oldest",
+    }),
+    findCommentPositionsByPostId({
+      ...sharedParams,
+      commentIds: params.flatCommentIds,
+      order: params.sort === "newest" ? "flat-newest" : "flat-oldest",
+    }),
+  ])
+
+  return {
+    rootPositions,
+    visiblePositions,
+    flatPositions,
   }
 }
 

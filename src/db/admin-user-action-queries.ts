@@ -53,6 +53,26 @@ export function updateUserBasicProfile(params: {
   })
 }
 
+export function updateUserAvatarPath(userId: number, avatarPath: string | null) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      avatarPath,
+    },
+  })
+}
+
+export function findUserAvatarProfile(userId: number) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      username: true,
+      nickname: true,
+      avatarPath: true,
+    },
+  })
+}
+
 export function findUserUsername(userId: number) {
   return prisma.user.findUnique({
     where: { id: userId },

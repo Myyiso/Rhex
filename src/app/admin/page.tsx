@@ -11,6 +11,7 @@ import { AdminCustomPageManager } from "@/components/admin/admin-custom-page-man
 import { AdminVerificationManager } from "@/components/admin/admin-verification-manager"
 import { AdminLevelSettingsForm } from "@/components/admin/admin-level-settings-form"
 import { AdminLogCenter } from "@/components/admin/admin-log-center"
+import { AdminMessageRecords } from "@/components/admin/admin-message-records"
 import { AdminCommentList } from "@/components/admin/admin-comment-list"
 import { AdminPostList } from "@/components/admin/admin-post-list"
 import { AdminReportCenter } from "@/components/admin/admin-report-center"
@@ -34,6 +35,7 @@ import { resolveAdminSettingsRoute } from "@/lib/admin-settings-navigation"
 import { isLocalPostType } from "@/lib/post-types"
 
 import { getAdminLogCenter } from "@/lib/admin-logs"
+import { getAdminMessages } from "@/lib/admin-messages"
 import { getAdminAttachmentManagement } from "@/lib/admin-attachments"
 import { getAdminUsers } from "@/lib/admin-users"
 import { getAllBadges, type BadgeEffectRuleItem, type BadgeItem, type BadgeRuleItem } from "@/lib/badges"
@@ -107,6 +109,13 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const currentCommentType = readSearchParam(searchParams?.type) ?? "ALL"
   const currentCommentPage = readSearchParam(searchParams?.commentPage) ?? "1"
   const currentCommentPageSize = readSearchParam(searchParams?.commentPageSize) ?? "20"
+  const currentMessageKeyword = readSearchParam(searchParams?.messageKeyword) ?? ""
+  const currentMessageSort = readSearchParam(searchParams?.messageSort) ?? "newest"
+  const currentMessagePage = readSearchParam(searchParams?.messagePage) ?? "1"
+  const currentMessagePageSize = readSearchParam(searchParams?.messagePageSize) ?? "20"
+  const currentMessageDetailPage = readSearchParam(searchParams?.messageDetailPage) ?? "1"
+  const currentMessageDetailPageSize = readSearchParam(searchParams?.messageDetailPageSize) ?? "20"
+  const currentMessageConversationId = readSearchParam(searchParams?.messageConversationId) ?? ""
   const currentReportPage = readSearchParam(searchParams?.reportPage) ?? "1"
   const currentReportPageSize = readSearchParam(searchParams?.reportPageSize) ?? "20"
   const currentSecurityPage = readSearchParam(searchParams?.securityPage) ?? "1"
@@ -136,7 +145,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
   const currentAttachmentPage = readSearchParam(searchParams?.attachmentPage) ?? "1"
   const currentAttachmentPageSize = readSearchParam(searchParams?.attachmentPageSize) ?? "20"
 
-  const [dashboardData, structureData, adminUsers, filteredPosts, filteredComments, levelDefinitions, badges, announcements, customPages, reports, attachments, sensitiveWordResult, logCenter, verificationAdminData] = await Promise.all([
+  const [dashboardData, structureData, adminUsers, filteredPosts, filteredComments, adminMessages, levelDefinitions, badges, announcements, customPages, reports, attachments, sensitiveWordResult, logCenter, verificationAdminData] = await Promise.all([
     admin.role === "ADMIN" && tab === "overview"
       ? getAdminDashboardData()
       : Promise.resolve<Awaited<ReturnType<typeof getAdminDashboardData>> | null>(null),
@@ -181,6 +190,17 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         pageSize: Number(currentCommentPageSize),
       })
       : Promise.resolve<Awaited<ReturnType<typeof getAdminComments>> | null>(null),
+    admin.role === "ADMIN" && tab === "messages"
+      ? getAdminMessages({
+        keyword: currentMessageKeyword || undefined,
+        sort: currentMessageSort,
+        page: Number(currentMessagePage),
+        pageSize: Number(currentMessagePageSize),
+        detailPage: Number(currentMessageDetailPage),
+        detailPageSize: Number(currentMessageDetailPageSize),
+        conversationId: currentMessageConversationId || undefined,
+      })
+      : Promise.resolve<Awaited<ReturnType<typeof getAdminMessages>> | null>(null),
     admin.role === "ADMIN" && tab === "levels"
       ? getLevelDefinitions()
       : Promise.resolve<Awaited<ReturnType<typeof getLevelDefinitions>>>([]),
@@ -245,6 +265,7 @@ export default async function AdminPage(props: PageProps<"/admin">) {
         {tab === "users" ? <AdminUserList data={adminUsers!} /> : null}
         {tab === "posts" ? <AdminPostList data={filteredPosts!} /> : null}
         {tab === "comments" ? <AdminCommentList data={filteredComments!} /> : null}
+        {tab === "messages" ? <AdminMessageRecords data={adminMessages!} /> : null}
         {tab === "structure" ? <StructureManager zones={structureData!.zones} boards={structureData!.boardStatus} permissions={structureData!.permissions} canReviewBoardApplications={structureData!.canReviewBoardApplications} pendingBoardApplicationCount={structureData!.boardApplications.filter((item) => item.status === "PENDING").length} initialFilters={{ keyword: currentStructureKeyword, zoneId: currentStructureZoneId, boardStatus: currentStructureBoardStatus, posting: currentStructurePosting }} /> : null}
         {tab === "board-applications" ? <AdminBoardApplicationManager zones={structureData!.zones} boardApplications={structureData!.boardApplications} canReviewBoardApplications={structureData!.canReviewBoardApplications} /> : null}
         {tab === "levels" ? <AdminLevelSettingsForm initialLevels={levelDefinitions} /> : null}

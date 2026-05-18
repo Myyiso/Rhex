@@ -1,4 +1,4 @@
-import { type Prisma, type PrismaClient } from "@prisma/client"
+import { Prisma, type PrismaClient } from "@prisma/client"
 
 import { prisma } from "@/db/client"
 import { userIdentityWithAvatarSelect } from "@/db/user-selects"
@@ -7,6 +7,23 @@ type PostTipQueryClient = Prisma.TransactionClient | PrismaClient
 
 function resolveClient(client?: PostTipQueryClient) {
   return client ?? prisma
+}
+
+function parseNumberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === "bigint") {
+    return Number(value)
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return 0
 }
 
 export interface PostTipSupportPostRecord {
@@ -41,6 +58,15 @@ export interface PostTipSupportRecipientRecord {
 export interface PostTipSupportAggregateRow {
   senderId: number
   totalAmount: number
+}
+
+export interface CommentTipSupportAggregateRow extends PostTipSupportAggregateRow {
+  commentId: string
+}
+
+export interface CommentTipSenderCountRow {
+  commentId: string
+  count: number
 }
 
 export interface PostTipSupporterProfile {
@@ -274,6 +300,74 @@ export async function listCommentTipSupportAggregates(
   return rows.map((row) => ({
     senderId: row.senderId,
     totalAmount: row._sum.amount ?? 0,
+  }))
+}
+
+export async function listCommentTipSupportAggregatesByCommentIds(
+  commentIds: string[],
+  limit = 20,
+  client?: PostTipQueryClient,
+): Promise<CommentTipSupportAggregateRow[]> {
+  const normalizedCommentIds = Array.from(new Set(commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const normalizedLimit = Math.max(1, limit)
+  const rows = await resolveClient(client).$queryRaw<Array<{
+    commentId: string
+    senderId: number | string | bigint
+    totalAmount: number | string | bigint
+  }>>(Prisma.sql`
+    SELECT "commentId", "senderId", "totalAmount"
+    FROM (
+      SELECT
+        "commentId",
+        "senderId",
+        SUM("amount")::int AS "totalAmount",
+        ROW_NUMBER() OVER (
+          PARTITION BY "commentId"
+          ORDER BY SUM("amount") DESC
+        ) AS row_number
+      FROM "PostTip"
+      WHERE "commentId" IN (${Prisma.join(normalizedCommentIds)})
+      GROUP BY "commentId", "senderId"
+    ) AS ranked
+    WHERE row_number <= ${normalizedLimit}
+    ORDER BY "commentId" ASC, "totalAmount" DESC
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
+    senderId: parseNumberValue(row.senderId),
+    totalAmount: parseNumberValue(row.totalAmount),
+  }))
+}
+
+export async function countPostTipEventsBySenderForCommentIds(params: {
+  senderId: number
+  commentIds: string[]
+  client?: PostTipQueryClient
+}): Promise<CommentTipSenderCountRow[]> {
+  const normalizedCommentIds = Array.from(new Set(params.commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const rows = await resolveClient(params.client).$queryRaw<Array<{
+    commentId: string
+    count: number | string | bigint
+  }>>(Prisma.sql`
+    SELECT "commentId", COUNT(*)::int AS "count"
+    FROM "PostTip"
+    WHERE "senderId" = ${params.senderId}
+      AND "commentId" IN (${Prisma.join(normalizedCommentIds)})
+    GROUP BY "commentId"
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
+    count: parseNumberValue(row.count),
   }))
 }
 

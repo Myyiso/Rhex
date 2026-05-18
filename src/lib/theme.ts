@@ -5,12 +5,6 @@ export const CUSTOM_THEME_STORAGE_KEY = "rhex-custom-theme"
 export const CUSTOM_THEME_VARIABLES_STORAGE_KEY = "rhex-custom-theme-variables"
 export const THEME_SETTINGS_CHANGE_EVENT = "rhex-theme-settings-change"
 export const CUSTOM_THEME_STYLE_ELEMENT_ID = "rhex-custom-theme-style"
-const THEME_SWITCH_TRANSITION_CLASS_NAME = "theme-switching"
-const THEME_SWITCH_TO_DARK_CLASS_NAME = "theme-switching-to-dark"
-const THEME_SWITCH_TO_LIGHT_CLASS_NAME = "theme-switching-to-light"
-const THEME_SWITCH_FALLBACK_CLASS_NAME = "theme-switching-fallback"
-const THEME_SWITCH_TRANSITION_DURATION_MS = 640
-const THEME_SWITCH_MOBILE_BREAKPOINT_PX = 768
 export const DEFAULT_THEME_FONT_FAMILY = "\"Microsoft YaHei\", \"PingFang SC\", \"Helvetica Neue\", Helvetica, Arial, sans-serif"
 export const DEFAULT_THEME_FONT_SIZE = "16px"
 const THEME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
@@ -22,14 +16,6 @@ export type BuiltInThemePreset = keyof typeof THEME_PRESETS
 export type ThemePreset = keyof typeof THEME_PRESETS | "custom"
 type ThemeVariableName = "background" | "foreground" | "card" | "card-foreground" | "primary" | "primary-foreground" | "secondary" | "secondary-foreground" | "muted" | "muted-foreground" | "accent" | "accent-foreground" | "border" | "ring"
 type ThemeVariableMap = Partial<Record<ThemeVariableName, string>>
-type ThemeViewTransition = {
-  ready: Promise<void>
-  finished: Promise<void>
-}
-type ThemeViewTransitionDocument = Document & {
-  startViewTransition?: (callback: () => void) => ThemeViewTransition
-}
-type ThemeSwitchTransitionDirection = "left-to-right" | "right-to-left"
 
 export interface CustomThemeModeConfig {
   primary: string
@@ -634,93 +620,12 @@ function readStoredCustomThemeVariables() {
   }
 }
 
-function notifyThemeSettingsChanged() {
+export function notifyThemeSettingsChanged() {
   if (!isBrowser()) {
     return
   }
 
   window.dispatchEvent(new Event(THEME_SETTINGS_CHANGE_EVENT))
-}
-
-let themeSwitchTransitionTimer: number | null = null
-let themeSwitchTransitionToken = 0
-
-function clearThemeSwitchTransitionTimer() {
-  if (themeSwitchTransitionTimer !== null) {
-    window.clearTimeout(themeSwitchTransitionTimer)
-    themeSwitchTransitionTimer = null
-  }
-}
-
-function clearThemeSwitchTransitionClasses() {
-  const root = document.documentElement
-  root.classList.remove(
-    THEME_SWITCH_TRANSITION_CLASS_NAME,
-    THEME_SWITCH_TO_DARK_CLASS_NAME,
-    THEME_SWITCH_TO_LIGHT_CLASS_NAME,
-    THEME_SWITCH_FALLBACK_CLASS_NAME,
-  )
-}
-
-function finishThemeSwitchTransition(token: number, className: string) {
-  if (token !== themeSwitchTransitionToken) {
-    return
-  }
-
-  document.documentElement.classList.remove(className, THEME_SWITCH_TO_DARK_CLASS_NAME, THEME_SWITCH_TO_LIGHT_CLASS_NAME)
-}
-
-function getThemeSwitchTransitionClassName(direction: ThemeSwitchTransitionDirection) {
-  return direction === "left-to-right" ? THEME_SWITCH_TO_DARK_CLASS_NAME : THEME_SWITCH_TO_LIGHT_CLASS_NAME
-}
-
-function shouldSkipThemeSwitchTransition() {
-  return window.innerWidth < THEME_SWITCH_MOBILE_BREAKPOINT_PX || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-}
-
-function runThemeSwitchTransition(direction: ThemeSwitchTransitionDirection, applyChange: () => void) {
-  if (!isBrowser()) {
-    applyChange()
-    return
-  }
-
-  if (shouldSkipThemeSwitchTransition()) {
-    clearThemeSwitchTransitionTimer()
-    clearThemeSwitchTransitionClasses()
-    applyChange()
-    return
-  }
-
-  const root = document.documentElement
-  const transitionToken = themeSwitchTransitionToken + 1
-  themeSwitchTransitionToken = transitionToken
-  clearThemeSwitchTransitionTimer()
-  clearThemeSwitchTransitionClasses()
-
-  const transitionDocument = document as ThemeViewTransitionDocument
-  if (typeof transitionDocument.startViewTransition === "function") {
-    const directionClassName = getThemeSwitchTransitionClassName(direction)
-    root.classList.add(THEME_SWITCH_TRANSITION_CLASS_NAME, directionClassName)
-
-    const transition = transitionDocument.startViewTransition(() => {
-      applyChange()
-    })
-
-    void transition.finished
-      .catch(() => undefined)
-      .finally(() => {
-        finishThemeSwitchTransition(transitionToken, THEME_SWITCH_TRANSITION_CLASS_NAME)
-      })
-    return
-  }
-
-  root.classList.add(THEME_SWITCH_FALLBACK_CLASS_NAME)
-  applyChange()
-
-  themeSwitchTransitionTimer = window.setTimeout(() => {
-    finishThemeSwitchTransition(transitionToken, THEME_SWITCH_FALLBACK_CLASS_NAME)
-    themeSwitchTransitionTimer = null
-  }, THEME_SWITCH_TRANSITION_DURATION_MS)
 }
 
 function writeThemeCookie(cookieName: string, value: string) {
@@ -780,31 +685,23 @@ function writeThemeSetting(storageKey: string, value: string) {
     return
   }
 
-  const currentSnapshot = readThemeLocalSettingsSnapshot()
-  const currentMode = resolveThemeMode(currentSnapshot.preference)
-  const nextPreference = storageKey === THEME_STORAGE_KEY ? resolveStoredThemePreference(value) : currentSnapshot.preference
-  const nextMode = resolveThemeMode(nextPreference)
-  const transitionDirection: ThemeSwitchTransitionDirection = nextMode === "dark" ? "left-to-right" : "right-to-left"
-  const applyChange = () => {
+  try {
     window.localStorage.setItem(storageKey, value)
-    writeThemeCookie(storageKey, value)
-
-    const nextSnapshot = readThemeLocalSettingsSnapshotFromStorage()
-    updateThemeLocalSettingsSnapshot(nextSnapshot)
-    applyTheme(nextSnapshot.preference, nextSnapshot.preset, nextSnapshot.fontSizePreset)
-    notifyThemeSettingsChanged()
+  } catch {
+    // Ignore storage write failures and still keep the cookie/snapshot path available.
   }
 
-  if (storageKey === THEME_STORAGE_KEY && currentMode !== nextMode) {
-    runThemeSwitchTransition(transitionDirection, applyChange)
-    return
-  }
-
-  applyChange()
+  writeThemeCookie(storageKey, value)
+  updateThemeLocalSettingsSnapshot(readThemeLocalSettingsSnapshotFromStorage())
+  notifyThemeSettingsChanged()
 }
 
 export function setStoredThemePreference(preference: ThemePreference) {
   writeThemeSetting(THEME_STORAGE_KEY, preference)
+}
+
+export function writeStoredThemePreferenceCookie(preference: ThemePreference) {
+  writeThemeCookie(THEME_STORAGE_KEY, preference)
 }
 
 export function setStoredThemePreset(preset: ThemePreset) {
@@ -830,141 +727,6 @@ export function saveCustomThemeConfig(config: CustomThemeConfig) {
 
 export function resetCustomThemeConfig() {
   saveCustomThemeConfig(DEFAULT_CUSTOM_THEME_CONFIG)
-}
-
-export function getThemeInitScript(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS) {
-  const runtime = resolveThemeRuntimeSettings(settings)
-  const defaultPreset = resolveBuiltInThemePreset(runtime.preset)
-  const defaultFontSizePreset = resolveStoredFontSizePreset(runtime.fontSizePreset)
-
-  return `
-    (function () {
-      try {
-        var root = document.documentElement;
-        var preference = window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
-        var preset = window.localStorage.getItem(${JSON.stringify(THEME_PRESET_STORAGE_KEY)});
-        var fontSizePreset = window.localStorage.getItem(${JSON.stringify(FONT_SIZE_PRESET_STORAGE_KEY)});
-        var customThemeConfigRaw = window.localStorage.getItem(${JSON.stringify(CUSTOM_THEME_STORAGE_KEY)});
-        var customThemeVariablesRaw = window.localStorage.getItem(${JSON.stringify(CUSTOM_THEME_VARIABLES_STORAGE_KEY)});
-        var presetValuesMap = ${JSON.stringify(getThemePresetValuesMap(runtime))};
-        var fontSizeValuesMap = ${JSON.stringify(getFontSizePresetValuesMap(runtime))};
-        var variableNames = ${JSON.stringify(THEME_VARIABLE_NAMES)};
-        var cookieMaxAge = ${THEME_COOKIE_MAX_AGE};
-        var syncCookie = function (name, value) {
-          if (!value) {
-            return;
-          }
-
-          document.cookie = name + "=" + encodeURIComponent(value) + "; path=/; max-age=" + cookieMaxAge + "; samesite=lax";
-        };
-        var resolvedPreference = preference === "dark" || preference === "light" || preference === "system" ? preference : "light";
-        var resolvedMode = resolvedPreference === "system"
-          ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-          : resolvedPreference;
-        var defaultPreset = ${JSON.stringify(defaultPreset)};
-        var defaultFontSizePreset = ${JSON.stringify(defaultFontSizePreset)};
-        var resolvedPreset = preset === "custom"
-          ? "custom"
-          : preset === "mono"
-            ? "default"
-            : preset === "rose"
-              ? "sea"
-              : (preset && presetValuesMap[preset] ? preset : defaultPreset);
-
-        syncCookie(${JSON.stringify(THEME_STORAGE_KEY)}, resolvedPreference);
-        syncCookie(${JSON.stringify(THEME_PRESET_STORAGE_KEY)}, resolvedPreset);
-
-        root.classList.toggle("dark", resolvedMode === "dark");
-        root.style.colorScheme = resolvedMode;
-        root.dataset.themePreset = resolvedPreset;
-
-        var applyVariableMap = function (map) {
-          for (var i = 0; i < variableNames.length; i += 1) {
-            var variableName = variableNames[i];
-            var variableValue = map && typeof map[variableName] === "string" ? map[variableName] : "";
-            if (variableValue) {
-              root.style.setProperty("--" + variableName, variableValue);
-            } else {
-              root.style.removeProperty("--" + variableName);
-            }
-          }
-        };
-
-        if (resolvedPreset === "custom") {
-          var customThemeVariables = null;
-          var customThemeConfig = null;
-
-          try {
-            customThemeVariables = customThemeVariablesRaw ? JSON.parse(customThemeVariablesRaw) : null;
-          } catch (_error) {
-            customThemeVariables = null;
-          }
-
-          try {
-            customThemeConfig = customThemeConfigRaw ? JSON.parse(customThemeConfigRaw) : null;
-          } catch (_error) {
-            customThemeConfig = null;
-          }
-
-          applyVariableMap(customThemeVariables && customThemeVariables[resolvedMode] && typeof customThemeVariables[resolvedMode] === "object"
-            ? customThemeVariables[resolvedMode]
-            : null);
-
-          var typography = customThemeConfig && customThemeConfig.typography && typeof customThemeConfig.typography === "object"
-            ? customThemeConfig.typography
-            : null;
-
-          if (typography && typeof typography.fontFamily === "string" && typography.fontFamily.trim()) {
-            root.style.setProperty("--theme-font-family", typography.fontFamily);
-          } else {
-            root.style.removeProperty("--theme-font-family");
-          }
-
-          if (typography && typeof typography.fontSize === "string" && typography.fontSize.trim()) {
-            root.style.fontSize = typography.fontSize;
-          } else {
-            root.style.fontSize = fontSizeValuesMap.normal;
-          }
-
-          root.removeAttribute("data-font-size-preset");
-
-          var customCss = customThemeConfig && typeof customThemeConfig.customCss === "string"
-            ? customThemeConfig.customCss.trim()
-            : "";
-          if (customCss) {
-            var existingStyleElement = document.getElementById(${JSON.stringify(CUSTOM_THEME_STYLE_ELEMENT_ID)});
-            var styleElement = existingStyleElement instanceof HTMLStyleElement
-              ? existingStyleElement
-              : Object.assign(document.createElement("style"), { id: ${JSON.stringify(CUSTOM_THEME_STYLE_ELEMENT_ID)} });
-            styleElement.textContent = customCss;
-            if (!styleElement.parentNode) {
-              document.head.appendChild(styleElement);
-            }
-          }
-        } else {
-          var presetValues = presetValuesMap[resolvedPreset] && presetValuesMap[resolvedPreset][resolvedMode]
-            ? presetValuesMap[resolvedPreset][resolvedMode]
-            : {};
-          var resolvedFontSizePreset = fontSizePreset && fontSizeValuesMap[fontSizePreset]
-            ? fontSizePreset
-            : defaultFontSizePreset;
-
-          applyVariableMap(presetValues);
-          syncCookie(${JSON.stringify(FONT_SIZE_PRESET_STORAGE_KEY)}, resolvedFontSizePreset);
-          root.style.removeProperty("--theme-font-family");
-          root.dataset.fontSizePreset = resolvedFontSizePreset;
-          root.style.fontSize = fontSizeValuesMap[resolvedFontSizePreset];
-
-          var customStyleElement = document.getElementById(${JSON.stringify(CUSTOM_THEME_STYLE_ELEMENT_ID)});
-          if (customStyleElement) {
-            customStyleElement.remove();
-          }
-        }
-      } catch (_error) {
-        // Ignore theme bootstrap failures and fall back to client sync.
-      }
-    })();
-  `
 }
 
 export interface ThemeLocalSettingsSnapshot {
@@ -1225,20 +987,6 @@ function resolveThemeRuntimeSettings(settings?: ThemeRuntimeSettings | ThemeCust
   return DEFAULT_THEME_RUNTIME_SETTINGS
 }
 
-function getThemePresetValuesMap(settings?: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings) {
-  const runtime = resolveThemeRuntimeSettings(settings)
-
-  return Object.fromEntries(
-    Object.entries(runtime.themePresets).map(([key, preset]) => [key, preset.values]),
-  ) as Record<string, ThemePresetDefinition["values"]>
-}
-
-function getFontSizePresetValuesMap(settings?: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings) {
-  return Object.fromEntries(
-    Object.entries(resolveThemeRuntimeSettings(settings).fontSizePresets).map(([key, preset]) => [key, preset.size]),
-  ) as Record<FontSizePreset, string>
-}
-
 export function getThemeDefaultsFromRuntime(settings: ThemeRuntimeSettings): ThemeDefaultSettings {
   return {
     preset: settings.preset,
@@ -1247,7 +995,6 @@ export function getThemeDefaultsFromRuntime(settings: ThemeRuntimeSettings): The
 }
 
 let cachedThemeLocalSettingsSnapshot: ThemeLocalSettingsSnapshot = DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
-let themeLocalSettingsCacheHydrated = false
 
 export function readThemeLocalSettingsSnapshotFromStorage(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS): ThemeLocalSettingsSnapshot {
   if (!isBrowser()) {
@@ -1296,7 +1043,13 @@ export function readThemeLocalSettingsSnapshotFromStorage(settings: ThemeRuntime
 
 function updateThemeLocalSettingsSnapshot(nextSnapshot: ThemeLocalSettingsSnapshot) {
   cachedThemeLocalSettingsSnapshot = nextSnapshot
-  themeLocalSettingsCacheHydrated = true
+}
+
+function areThemeLocalSettingsSnapshotsEqual(left: ThemeLocalSettingsSnapshot, right: ThemeLocalSettingsSnapshot) {
+  return left.preference === right.preference
+    && left.preset === right.preset
+    && left.fontSizePreset === right.fontSizePreset
+    && JSON.stringify(left.customThemeConfig) === JSON.stringify(right.customThemeConfig)
 }
 
 export function readThemeLocalSettingsSnapshot(settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS): ThemeLocalSettingsSnapshot {
@@ -1304,8 +1057,10 @@ export function readThemeLocalSettingsSnapshot(settings: ThemeRuntimeSettings | 
     return DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
   }
 
-  if (!themeLocalSettingsCacheHydrated) {
-    updateThemeLocalSettingsSnapshot(readThemeLocalSettingsSnapshotFromStorage(settings))
+  const nextSnapshot = readThemeLocalSettingsSnapshotFromStorage(settings)
+
+  if (!areThemeLocalSettingsSnapshotsEqual(cachedThemeLocalSettingsSnapshot, nextSnapshot)) {
+    updateThemeLocalSettingsSnapshot(nextSnapshot)
   }
 
   return cachedThemeLocalSettingsSnapshot
@@ -1328,7 +1083,7 @@ export function subscribeThemeSettings(onStoreChange: () => void) {
       || event.key === CUSTOM_THEME_STORAGE_KEY
       || event.key === CUSTOM_THEME_VARIABLES_STORAGE_KEY
     ) {
-      onStoreChange()
+      handleChange()
     }
   }
 
@@ -1369,14 +1124,6 @@ export function resolveStoredThemePreference(value: string | null | undefined): 
   }
 
   return "light"
-}
-
-export function resolveSystemTheme(): ThemeMode {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
-}
-
-export function resolveThemeMode(preference: ThemePreference): ThemeMode {
-  return preference === "system" ? resolveSystemTheme() : preference
 }
 
 export function resolveStoredThemePreset(
@@ -1502,16 +1249,14 @@ function applyCustomThemeCss(config: CustomThemeConfig) {
 }
 
 export function applyTheme(
-  preference: ThemePreference,
+  mode: ThemeMode,
   preset: ThemePreset = "default",
   fontSizePreset: FontSizePreset = "normal",
   settings: ThemeRuntimeSettings | ThemeCustomizationSettings | ThemeDefaultSettings = DEFAULT_THEME_RUNTIME_SETTINGS,
 ) {
-  const resolvedTheme = resolveThemeMode(preference)
   const root = document.documentElement
-  root.classList.toggle("dark", resolvedTheme === "dark")
-  root.style.colorScheme = resolvedTheme
-  applyThemePreset(preset, resolvedTheme, settings)
+  root.style.colorScheme = mode
+  applyThemePreset(preset, mode, settings)
   if (preset === "custom") {
     const customThemeConfig = readStoredCustomThemeConfig()
     applyCustomThemeTypography(customThemeConfig)

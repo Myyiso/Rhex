@@ -15,7 +15,7 @@ import {
   findMessageHistoryAnchor,
   findMessageRecipientById,
 } from "@/db/message-write-queries"
-import { ConversationKind, Prisma, UserStatus } from "@/db/types"
+import { ConversationKind, Prisma, UserRole, UserStatus } from "@/db/types"
 
 import { apiError } from "@/lib/api-route"
 import { enforceSensitiveText } from "@/lib/content-safety"
@@ -27,6 +27,14 @@ import {
   protectMessageMediaTokens,
   summarizeMessagePreview,
 } from "@/lib/message-media"
+import {
+  type CachedSiteChatMessageRecord,
+  getCachedMessageConversationList,
+  getCachedSiteChatMessages,
+  getCachedUnreadMessageCount,
+  invalidateMessageUserCache,
+  invalidateSiteChatCache,
+} from "@/lib/message-redis-cache"
 import { messageEventBus } from "@/lib/message-event-bus"
 import { isPublicRouteError } from "@/lib/public-route-error"
 import {
@@ -35,6 +43,7 @@ import {
   isSiteChatConversationId,
   SITE_CHAT_CONVERSATION_ID,
   SITE_CHAT_EMPTY_PREVIEW,
+  SITE_CHAT_PARTICIPANT_ID,
   SITE_CHAT_ROOM_DB_ID,
   SITE_CHAT_SUBTITLE,
   SITE_CHAT_TITLE,
@@ -48,6 +57,7 @@ import type {
   MessageCenterData,
   MessageConversationDetail,
   MessageConversationListItem,
+  MessageDeletedStreamEvent,
   MessageHistoryResult,
   MessageParticipantProfile,
   MessageSendResult,
@@ -70,6 +80,25 @@ export async function assertMessageFeatureEnabled() {
 
 type MessageRecipientRecord = NonNullable<Awaited<ReturnType<typeof findMessageRecipientById>>>
 type SiteChatMessageSendResult = MessageSendResult & { participantUserIds: number[] }
+type SiteChatMessageDeleteActor = {
+  id: number
+  role: UserRole | "USER" | "MODERATOR" | "ADMIN"
+}
+type SiteChatLatestMessageForDeletion = {
+  id: string
+  body: string
+  createdAt: Date
+  senderId: number
+  sender: {
+    username: string
+    nickname: string | null
+    avatarPath: string | null
+  }
+}
+export interface SiteChatMessageDeleteResult {
+  messageId: string
+  latestMessage?: MessageDeletedStreamEvent["latestMessage"]
+}
 type DirectConversationListEntry = {
   id: string
   kind: "DIRECT"
@@ -275,32 +304,34 @@ async function getSiteChatParticipantUnreadCount(currentUserId: number) {
     : 0
 }
 
-async function findSiteChatConversationWithMessages(messageLimit: number) {
+async function loadSiteChatMessages(messageLimit: number): Promise<CachedSiteChatMessageRecord[]> {
   await ensureSiteChatConversation()
 
-  return prisma.conversation.findUnique({
+  return prisma.directMessage.findMany({
     where: {
-      id: SITE_CHAT_ROOM_DB_ID,
+      conversationId: SITE_CHAT_ROOM_DB_ID,
     },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: messageLimit,
     include: {
-      messages: {
-        orderBy: {
-          createdAt: "desc",
-        },
-        take: messageLimit,
-        include: {
-          sender: {
-            select: {
-              id: true,
-              username: true,
-              nickname: true,
-              avatarPath: true,
-            },
-          },
+      sender: {
+        select: {
+          id: true,
+          username: true,
+          nickname: true,
+          avatarPath: true,
         },
       },
     },
   })
+}
+
+async function findSiteChatConversationWithMessages(messageLimit: number) {
+  return {
+    messages: await getCachedSiteChatMessages(messageLimit, () => loadSiteChatMessages(messageLimit)),
+  }
 }
 
 async function buildSiteChatConversationListItem(currentUserId: number): Promise<MessageConversationListItem> {
@@ -355,7 +386,7 @@ async function getSiteChatConversationDetail(currentUserId: number): Promise<Mes
     title: SITE_CHAT_TITLE,
     subtitle: visibleMessages.length > 0 ? SITE_CHAT_SUBTITLE : SITE_CHAT_EMPTY_PREVIEW,
     updatedAt: visibleMessages.length > 0
-      ? formatMonthDayTime(visibleMessages.at(-1)?.createdAt ?? conversation.lastMessageAt)
+      ? formatMonthDayTime(visibleMessages[visibleMessages.length - 1].createdAt)
       : SITE_CHAT_UPDATED_AT_PLACEHOLDER,
     participants: [createSiteChatParticipant()],
     hasMoreHistory,
@@ -406,7 +437,7 @@ async function sendSiteChatMessage(senderId: number, body: string): Promise<Site
   await ensureSiteChatParticipant(senderId)
 
   const sender = await findMessageRecipientById(senderId)
-  const { message, participants } = await prisma.$transaction(async (tx) => {
+  const message = await prisma.$transaction(async (tx) => {
     const created = await tx.directMessage.create({
       data: {
         conversationId: SITE_CHAT_ROOM_DB_ID,
@@ -451,29 +482,16 @@ async function sendSiteChatMessage(senderId: number, body: string): Promise<Site
       },
     })
 
-    const allParticipants = await tx.conversationParticipant.findMany({
-      where: {
-        conversationId: SITE_CHAT_ROOM_DB_ID,
-        archivedAt: null,
-      },
-      select: {
-        userId: true,
-        unreadCount: true,
-      },
-    })
-
-    return {
-      message: created,
-      participants: allParticipants,
-    }
+    return created
   })
+  await invalidateSiteChatCache()
 
   const occurredAt = message.createdAt.toISOString()
   const senderDisplayName = sender ? getUserDisplayName(sender) : "用户"
   const senderUsername = sender?.username ?? ""
   const senderAvatarPath = sender?.avatarPath ?? null
 
-  await Promise.all(participants.map((participant) => messageEventBus.publish({
+  await messageEventBus.publish({
     type: "message.created",
     conversationId: SITE_CHAT_CONVERSATION_ID,
     messageId: message.id,
@@ -483,11 +501,10 @@ async function sendSiteChatMessage(senderId: number, body: string): Promise<Site
     senderUsername,
     senderDisplayName,
     senderAvatarPath,
-    recipientId: participant.userId,
-    recipientUnreadMessageCount: participant.userId === senderId ? 0 : participant.unreadCount,
-    targetUserIds: [participant.userId],
+    recipientId: SITE_CHAT_PARTICIPANT_ID,
+    broadcast: "site-chat",
     occurredAt,
-  })))
+  })
 
   return {
     id: message.id,
@@ -499,7 +516,181 @@ async function sendSiteChatMessage(senderId: number, body: string): Promise<Site
     senderDisplayName,
     senderAvatarPath,
     contentAdjusted: Boolean(contentAdjusted),
-    participantUserIds: participants.map((participant) => participant.userId),
+    participantUserIds: [senderId],
+  }
+}
+
+function mapSiteChatDeletedEventLatestMessage(
+  message: SiteChatLatestMessageForDeletion | null,
+): MessageDeletedStreamEvent["latestMessage"] | undefined {
+  if (!message) {
+    return undefined
+  }
+
+  return {
+    messageId: message.id,
+    content: message.body,
+    createdAtLabel: formatMonthDayTime(message.createdAt),
+    senderId: message.senderId,
+    senderUsername: message.sender.username,
+    senderDisplayName: getUserDisplayName(message.sender),
+    senderAvatarPath: message.sender.avatarPath,
+    occurredAt: message.createdAt.toISOString(),
+  }
+}
+
+export async function deleteSiteChatMessageForAdmin(
+  messageId: string,
+  actor: SiteChatMessageDeleteActor,
+): Promise<SiteChatMessageDeleteResult> {
+  await assertMessageFeatureEnabled()
+
+  if (actor.role !== UserRole.ADMIN) {
+    apiError(403, "无权删除全站聊天室消息")
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const message = await tx.directMessage.findFirst({
+      where: {
+        id: messageId,
+        conversationId: SITE_CHAT_ROOM_DB_ID,
+      },
+      include: {
+        sender: {
+          select: {
+            username: true,
+            nickname: true,
+            avatarPath: true,
+          },
+        },
+      },
+    })
+
+    if (!message) {
+      apiError(404, "聊天消息不存在或已删除")
+    }
+
+    await tx.directMessage.delete({
+      where: {
+        id: message.id,
+      },
+    })
+
+    const previousMessage = await tx.directMessage.findFirst({
+      where: {
+        conversationId: SITE_CHAT_ROOM_DB_ID,
+        OR: [
+          { createdAt: { lt: message.createdAt } },
+          {
+            createdAt: message.createdAt,
+            id: { lt: message.id },
+          },
+        ],
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+      },
+    })
+
+    await tx.conversationParticipant.updateMany({
+      where: {
+        conversationId: SITE_CHAT_ROOM_DB_ID,
+        archivedAt: null,
+        userId: {
+          not: message.senderId,
+        },
+        OR: [
+          { lastReadMessageId: null },
+          {
+            lastReadMessage: {
+              createdAt: {
+                lt: message.createdAt,
+              },
+            },
+          },
+          {
+            lastReadMessage: {
+              createdAt: message.createdAt,
+              id: {
+                lt: message.id,
+              },
+            },
+          },
+        ],
+        unreadCount: {
+          gt: 0,
+        },
+      },
+      data: {
+        unreadCount: {
+          decrement: 1,
+        },
+      },
+    })
+
+    await tx.conversationParticipant.updateMany({
+      where: {
+        conversationId: SITE_CHAT_ROOM_DB_ID,
+        lastReadMessageId: message.id,
+      },
+      data: {
+        lastReadMessageId: previousMessage?.id ?? null,
+      },
+    })
+
+    const latestMessage = await tx.directMessage.findFirst({
+      where: {
+        conversationId: SITE_CHAT_ROOM_DB_ID,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        sender: {
+          select: {
+            username: true,
+            nickname: true,
+            avatarPath: true,
+          },
+        },
+      },
+    })
+
+    if (latestMessage) {
+      await tx.conversation.update({
+        where: {
+          id: SITE_CHAT_ROOM_DB_ID,
+        },
+        data: {
+          lastMessageAt: latestMessage.createdAt,
+        },
+      })
+    }
+
+    return {
+      latestMessage,
+    }
+  })
+
+  await invalidateSiteChatCache()
+
+  const latestMessage = mapSiteChatDeletedEventLatestMessage(result.latestMessage)
+  const occurredAt = new Date().toISOString()
+
+  await messageEventBus.publish({
+    type: "message.deleted",
+    conversationId: SITE_CHAT_CONVERSATION_ID,
+    messageId,
+    deletedByUserId: actor.id,
+    latestMessage,
+    broadcast: "site-chat",
+    occurredAt,
+  })
+
+  return {
+    messageId,
+    latestMessage,
   }
 }
 
@@ -511,6 +702,7 @@ async function getOrCreateConversation(userAId: number, userBId: number) {
     await withDbTransaction(async (tx) => {
       await restoreConversationForUser(tx, existing.conversationId, userAId)
     })
+    await invalidateMessageUserCache(userAId)
 
     return existing.conversation
   }
@@ -555,6 +747,7 @@ async function getOrCreateConversation(userAId: number, userBId: number) {
     await withDbTransaction(async (tx) => {
       await restoreConversationForUser(tx, concurrentConversation.conversationId, userAId)
     })
+    await invalidateMessageUserCache(userAId)
 
     return concurrentConversation.conversation
   }
@@ -575,7 +768,7 @@ async function resolveCanonicalConversationId(currentUserId: number, conversatio
     : undefined
 }
 
-async function getDatabaseBackedConversations(currentUserId: number): Promise<MessageConversationListItem[]> {
+async function loadDatabaseBackedConversations(currentUserId: number): Promise<MessageConversationListItem[]> {
   const items = await findConversationListItems(currentUserId)
 
   return items
@@ -616,6 +809,10 @@ async function getDatabaseBackedConversations(currentUserId: number): Promise<Me
     }))
 }
 
+async function getDatabaseBackedConversations(currentUserId: number): Promise<MessageConversationListItem[]> {
+  return getCachedMessageConversationList(currentUserId, () => loadDatabaseBackedConversations(currentUserId))
+}
+
 export async function getUnreadMessageConversationCount(currentUserId: number) {
   const settings = await getSiteSettings()
 
@@ -623,7 +820,7 @@ export async function getUnreadMessageConversationCount(currentUserId: number) {
     return 0
   }
 
-  return getUnreadConversationCount(currentUserId)
+  return getCachedUnreadMessageCount(currentUserId, () => getUnreadConversationCount(currentUserId))
 }
 
 export async function markConversationAsRead(conversationId: string, currentUserId: number) {
@@ -632,6 +829,7 @@ export async function markConversationAsRead(conversationId: string, currentUser
   if (isSiteChatConversationId(conversationId)) {
     if (await isSiteChatEnabled()) {
       await markSiteChatConversationAsRead(currentUserId)
+      await invalidateMessageUserCache(currentUserId)
     }
     return
   }
@@ -643,6 +841,7 @@ export async function markConversationAsRead(conversationId: string, currentUser
 
   const latestMessage = await findLatestMessageByConversationId(canonicalConversationId)
   await updateConversationReadState(canonicalConversationId, currentUserId, latestMessage?.id)
+  await invalidateMessageUserCache(currentUserId)
 }
 
 async function getDatabaseConversationDetail(currentUserId: number, conversationId: string): Promise<MessageConversationDetail | null> {
@@ -751,6 +950,7 @@ async function resolveConversationReference(currentUserId: number, conversationI
           await withDbTransaction(async (tx) => {
             await restoreConversationForUser(tx, existingConversation.conversationId, currentUserId)
           })
+          await invalidateMessageUserCache(currentUserId)
 
           return {
             kind: "database",
@@ -820,7 +1020,8 @@ export async function sendDirectMessage(
   const conversation = await getOrCreateConversation(senderId, recipient.id)
   const message = await createDirectMessageInTransaction(conversation.id, senderId, recipient.id, sanitizedContent)
   const sender = await findMessageRecipientById(senderId)
-  const recipientUnreadMessageCount = await getUnreadConversationCount(recipient.id)
+  await invalidateMessageUserCache([senderId, recipient.id])
+  const recipientUnreadMessageCount = await getCachedUnreadMessageCount(recipient.id, () => getUnreadConversationCount(recipient.id))
   const occurredAt = message.createdAt.toISOString()
   const senderDisplayName = sender ? getUserDisplayName(sender) : "用户"
   const senderUsername = sender?.username ?? ""
@@ -921,6 +1122,7 @@ export async function deleteConversationForUser(conversationId: string, currentU
   await withDbTransaction(async (tx) => {
     await removeConversationForUser(tx, canonicalConversationId, currentUserId)
   })
+  await invalidateMessageUserCache(currentUserId)
 }
 
 export async function getMessageCenterData(currentUserId: number, conversationId?: string): Promise<MessageCenterData> {

@@ -152,6 +152,14 @@ const writeGuardConfig = {
       parts: ["userId", "conversationId"],
     },
   },
+  "messages-site-chat-delete": {
+    description: "全站聊天室消息删除去重，避免管理员短时间重复删除同一条消息。",
+    scope: "messages-site-chat-delete",
+    cooldownMs: 500,
+    dedupe: {
+      parts: ["userId", "messageId"],
+    },
+  },
   "messages-read": {
     description: "私信已读更新去抖，减少重复写。",
     scope: "messages-read",

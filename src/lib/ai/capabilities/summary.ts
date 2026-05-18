@@ -12,6 +12,7 @@ import {
 import { runAiTask } from "@/lib/ai/service"
 import { getServerAiReplyConfig } from "@/lib/ai-reply-config"
 import { getSummaryConfig } from "@/lib/ai/capabilities/summary-config"
+import { getAiSafePostContentText } from "@/lib/post-content"
 
 const LOG_SCOPE = "ai.capabilities.summary"
 
@@ -193,7 +194,11 @@ export async function summarizePostById(postId: string): Promise<SummaryResult> 
     select: { id: true, title: true, content: true, appendedContent: true },
   })
   if (!post) throw new Error(`post_not_found:${postId}`)
-  const body = [post.title, post.content, post.appendedContent].filter(Boolean).join("\n\n")
+  const body = [
+    post.title,
+    getAiSafePostContentText(post.content),
+    post.appendedContent ? getAiSafePostContentText(post.appendedContent) : "",
+  ].filter(Boolean).join("\n\n")
   return getOrCreateSummary({ sourceKind: "post", sourceId: postId, content: body })
 }
 

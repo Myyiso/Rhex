@@ -8,6 +8,7 @@ import {
   type AddonClientComponentFactory,
   type AddonClientSdk,
 } from "@/addons-host/sdk/client"
+import { resolveAddonClientImportUrl } from "@/addons-host/client/module-url"
 
 interface AddonClientIslandProps {
   moduleUrl: string
@@ -158,8 +159,13 @@ export function AddonClientIsland({ moduleUrl, props, fallback = null }: AddonCl
     }
 
     void (async () => {
+      const importUrl = resolveAddonClientImportUrl(moduleUrl)
+      if (!importUrl) {
+        return
+      }
+
       try {
-        const loaded = await import(/* webpackIgnore: true */ moduleUrl) as AddonClientModule
+        const loaded = await import(/* webpackIgnore: true */ importUrl) as AddonClientModule
         if (disposed) {
           return
         }

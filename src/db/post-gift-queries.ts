@@ -138,6 +138,15 @@ export interface PostGiftSupportAggregateRow {
   totalAmount: number
 }
 
+export interface CommentGiftSupportAggregateRow extends PostGiftSupportAggregateRow {
+  commentId: string
+}
+
+export interface CommentGiftSenderCountRow {
+  commentId: string
+  count: number
+}
+
 export interface PostGiftStatItem {
   giftId: string
   giftName: string
@@ -155,6 +164,14 @@ export interface PostGiftRecentEventItem {
   senderName: string
   senderAvatarPath: string | null
   createdAt: string
+}
+
+export interface CommentGiftStatItem extends PostGiftStatItem {
+  commentId: string
+}
+
+export interface CommentGiftRecentEventItem extends PostGiftRecentEventItem {
+  commentId: string
 }
 
 export async function listActiveGiftDefinitions(client?: PostGiftQueryClient): Promise<SiteTippingGiftItem[]> {
@@ -241,6 +258,33 @@ export async function countPostGiftEventsBySender(params: {
   return parseNumberValue(rows[0]?.count)
 }
 
+export async function countPostGiftEventsBySenderForCommentIds(params: {
+  senderId: number
+  commentIds: string[]
+  client?: PostGiftQueryClient
+}): Promise<CommentGiftSenderCountRow[]> {
+  const normalizedCommentIds = Array.from(new Set(params.commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const rows = await resolveClient(params.client).$queryRaw<Array<{
+    commentId: string
+    count: number | string | bigint
+  }>>(Prisma.sql`
+    SELECT "commentId", COUNT(*)::int AS "count"
+    FROM "PostGiftEvent"
+    WHERE "senderId" = ${params.senderId}
+      AND "commentId" IN (${Prisma.join(normalizedCommentIds)})
+    GROUP BY "commentId"
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
+    count: parseNumberValue(row.count),
+  }))
+}
+
 export async function listPostGiftSupportAggregates(postId: string, limit = 10, client?: PostGiftQueryClient): Promise<PostGiftSupportAggregateRow[]> {
   const rows = await resolveClient(client).$queryRaw<Array<{
     senderId: number | string | bigint
@@ -279,6 +323,43 @@ export async function listCommentGiftSupportAggregates(commentId: string, limit 
   `)
 
   return rows.map((row) => ({
+    senderId: parseNumberValue(row.senderId),
+    totalAmount: parseNumberValue(row.totalAmount),
+  }))
+}
+
+export async function listCommentGiftSupportAggregatesByCommentIds(commentIds: string[], limit = 10, client?: PostGiftQueryClient): Promise<CommentGiftSupportAggregateRow[]> {
+  const normalizedCommentIds = Array.from(new Set(commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const normalizedLimit = Math.max(1, limit)
+  const rows = await resolveClient(client).$queryRaw<Array<{
+    commentId: string
+    senderId: number | string | bigint
+    totalAmount: number | string | bigint
+  }>>(Prisma.sql`
+    SELECT "commentId", "senderId", "totalAmount"
+    FROM (
+      SELECT
+        "commentId",
+        "senderId",
+        SUM("totalPoints")::int AS "totalAmount",
+        ROW_NUMBER() OVER (
+          PARTITION BY "commentId"
+          ORDER BY SUM("totalPoints") DESC, MAX("createdAt") DESC
+        ) AS row_number
+      FROM "PostGiftEvent"
+      WHERE "commentId" IN (${Prisma.join(normalizedCommentIds)})
+      GROUP BY "commentId", "senderId"
+    ) AS ranked
+    WHERE row_number <= ${normalizedLimit}
+    ORDER BY "commentId" ASC, "totalAmount" DESC
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
     senderId: parseNumberValue(row.senderId),
     totalAmount: parseNumberValue(row.totalAmount),
   }))
@@ -353,6 +434,49 @@ export async function listCommentGiftStats(commentId: string, client?: PostGiftQ
   }))
 }
 
+export async function listCommentGiftStatsByCommentIds(commentIds: string[], client?: PostGiftQueryClient): Promise<CommentGiftStatItem[]> {
+  const normalizedCommentIds = Array.from(new Set(commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const rows = await resolveClient(client).$queryRaw<Array<{
+    commentId: string
+    giftId: string
+    giftNameSnapshot: string
+    giftIconSnapshot: string
+    unitPrice: number | string | bigint
+    totalCount: number | string | bigint
+    totalPoints: number | string | bigint
+    lastSentAt: Date | string
+  }>>(Prisma.sql`
+    SELECT
+      "commentId",
+      "giftId",
+      MAX("giftNameSnapshot") AS "giftNameSnapshot",
+      MAX("giftIconSnapshot") AS "giftIconSnapshot",
+      MAX("unitPrice")::int AS "unitPrice",
+      SUM("quantity")::int AS "totalCount",
+      SUM("totalPoints")::int AS "totalPoints",
+      MAX("createdAt") AS "lastSentAt"
+    FROM "PostGiftEvent"
+    WHERE "commentId" IN (${Prisma.join(normalizedCommentIds)})
+    GROUP BY "commentId", "giftId"
+    ORDER BY "commentId" ASC, SUM("quantity") DESC, MAX("createdAt") DESC
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
+    giftId: row.giftId,
+    giftName: row.giftNameSnapshot,
+    giftIcon: row.giftIconSnapshot,
+    unitPrice: parseNumberValue(row.unitPrice),
+    totalCount: parseNumberValue(row.totalCount),
+    totalPoints: parseNumberValue(row.totalPoints),
+    lastSentAt: parseDateValue(row.lastSentAt).toISOString(),
+  }))
+}
+
 export async function listRecentPostGiftEvents(postId: string, limit = 12, client?: PostGiftQueryClient): Promise<PostGiftRecentEventItem[]> {
   const rows = await resolveClient(client).$queryRaw<Array<{
     id: string
@@ -413,6 +537,63 @@ export async function listRecentCommentGiftEvents(commentId: string, limit = 12,
   `)
 
   return rows.map((row) => ({
+    id: row.id,
+    giftId: row.giftId,
+    senderId: parseNumberValue(row.senderId),
+    senderName: row.senderName,
+    senderAvatarPath: row.senderAvatarPath,
+    createdAt: parseDateValue(row.createdAt).toISOString(),
+  }))
+}
+
+export async function listRecentCommentGiftEventsByCommentIds(commentIds: string[], limit = 12, client?: PostGiftQueryClient): Promise<CommentGiftRecentEventItem[]> {
+  const normalizedCommentIds = Array.from(new Set(commentIds.map((commentId) => commentId.trim()).filter(Boolean)))
+  if (normalizedCommentIds.length === 0) {
+    return []
+  }
+
+  const normalizedLimit = Math.max(1, limit)
+  const rows = await resolveClient(client).$queryRaw<Array<{
+    commentId: string
+    id: string
+    giftId: string
+    senderId: number | string | bigint
+    senderName: string
+    senderAvatarPath: string | null
+    createdAt: Date | string
+  }>>(Prisma.sql`
+    SELECT
+      "commentId",
+      "id",
+      "giftId",
+      "senderId",
+      "senderName",
+      "senderAvatarPath",
+      "createdAt"
+    FROM (
+      SELECT
+        event."commentId",
+        event."id",
+        event."giftId",
+        event."senderId",
+        COALESCE(NULLIF("user"."nickname", ''), "user"."username") AS "senderName",
+        "user"."avatarPath" AS "senderAvatarPath",
+        event."createdAt",
+        ROW_NUMBER() OVER (
+          PARTITION BY event."commentId"
+          ORDER BY event."createdAt" DESC
+        ) AS row_number
+      FROM "PostGiftEvent" AS event
+      INNER JOIN "User" AS "user"
+        ON "user"."id" = event."senderId"
+      WHERE event."commentId" IN (${Prisma.join(normalizedCommentIds)})
+    ) AS ranked
+    WHERE row_number <= ${normalizedLimit}
+    ORDER BY "commentId" ASC, "createdAt" DESC
+  `)
+
+  return rows.map((row) => ({
+    commentId: row.commentId,
     id: row.id,
     giftId: row.giftId,
     senderId: parseNumberValue(row.senderId),

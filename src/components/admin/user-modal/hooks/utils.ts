@@ -13,6 +13,7 @@ export function toEditableScopes<T extends { canEditSettings: boolean; canWithdr
 export function buildFallbackProfile(user: AdminUserListItem): AdminUserEditableProfile {
   return {
     nickname: user.nickname ?? user.username,
+    avatarPath: user.avatarPath ?? "",
     email: user.email ?? "",
     phone: user.phone ?? "",
     bio: user.bio ?? "",

@@ -1,58 +1,38 @@
 "use client"
 
-import { createContext, type Dispatch, type ReactNode, type SetStateAction, useContext, useLayoutEffect, useMemo, useSyncExternalStore } from "react"
+import {
+  ThemeProvider as NextThemesProvider,
+  useTheme as useNextTheme,
+  type UseThemeProps,
+} from "next-themes"
+import {
+  createContext,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react"
 
 import {
   DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT,
+  DEFAULT_THEME_RUNTIME_SETTINGS,
+  THEME_STORAGE_KEY,
   applyTheme,
+  notifyThemeSettingsChanged,
   readThemeLocalSettingsSnapshot,
   resolveStoredThemePreference,
-  resolveSystemTheme,
-  setStoredThemePreference,
   subscribeThemeSettings,
   type ThemeMode,
   type ThemePreference,
   type ThemeRuntimeSettings,
+  writeStoredThemePreferenceCookie,
 } from "@/lib/theme"
-
-function readThemeHydrationSnapshot() {
-  if (typeof window === "undefined") {
-    return DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT
-  }
-
-  return readThemeLocalSettingsSnapshot()
-}
-
-function readSystemThemeSnapshot() {
-  if (typeof window === "undefined") {
-    return "light" as ThemeMode
-  }
-
-  return resolveSystemTheme()
-}
-
-function subscribeSystemTheme(onStoreChange: () => void) {
-  if (typeof window === "undefined") {
-    return () => undefined
-  }
-
-  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)")
-  const handleChange = () => {
-    onStoreChange()
-  }
-
-  if (typeof mediaQuery.addEventListener === "function") {
-    mediaQuery.addEventListener("change", handleChange)
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange)
-    }
-  }
-
-  mediaQuery.addListener(handleChange)
-  return () => {
-    mediaQuery.removeListener(handleChange)
-  }
-}
 
 interface ThemeContextValue {
   forcedTheme?: string
@@ -72,53 +52,109 @@ const THEME_CONTEXT_FALLBACK: ThemeContextValue = {
   themes: ["light", "dark", "system"],
 }
 
-const ThemeContext = createContext<ThemeContextValue | null>(null)
+const ThemeSettingsContext = createContext<ThemeRuntimeSettings | undefined>(undefined)
 
-export function useTheme() {
-  return useContext(ThemeContext) ?? THEME_CONTEXT_FALLBACK
+function resolveThemeMode(value: UseThemeProps["resolvedTheme"]): ThemeMode {
+  return value === "dark" ? "dark" : "light"
+}
+
+export function useTheme(): ThemeContextValue {
+  const nextTheme = useNextTheme()
+  const themeSettings = useContext(ThemeSettingsContext)
+  const theme = resolveStoredThemePreference(nextTheme.theme)
+
+  return {
+    forcedTheme: nextTheme.forcedTheme,
+    resolvedTheme: resolveThemeMode(nextTheme.resolvedTheme),
+    setTheme: nextTheme.setTheme,
+    systemTheme: resolveThemeMode(nextTheme.systemTheme),
+    theme,
+    themeSettings,
+    themes: THEME_CONTEXT_FALLBACK.themes,
+  }
 }
 
 export function ThemeProvider({ children, settings: themeSettings }: { children: ReactNode; settings?: ThemeRuntimeSettings }) {
+  return (
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="light"
+      disableTransitionOnChange
+      enableColorScheme
+      enableSystem
+      storageKey={THEME_STORAGE_KEY}
+      themes={["light", "dark"]}
+    >
+      <ThemeSettingsContext.Provider value={themeSettings}>
+        <ThemeRuntimeSync settings={themeSettings} />
+        {children}
+      </ThemeSettingsContext.Provider>
+    </NextThemesProvider>
+  )
+}
+
+function ThemeRuntimeSync({ settings: themeSettings }: { settings?: ThemeRuntimeSettings }) {
+  const {
+    resolvedTheme: nextResolvedTheme,
+    setTheme: setNextTheme,
+    theme: nextTheme,
+  } = useNextTheme()
+  const syncedInitialThemeRef = useRef(false)
   const serverSnapshot = useMemo(
     () => themeSettings
       ? { ...DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT, preset: themeSettings.preset, fontSizePreset: themeSettings.fontSizePreset }
-      : readThemeHydrationSnapshot(),
+      : DEFAULT_THEME_LOCAL_SETTINGS_SNAPSHOT,
     [themeSettings],
   )
-  const settings = useSyncExternalStore(
+  const localSettings = useSyncExternalStore(
     subscribeThemeSettings,
     () => readThemeLocalSettingsSnapshot(themeSettings),
     () => serverSnapshot,
   )
-  const systemTheme = useSyncExternalStore(
-    subscribeSystemTheme,
-    readSystemThemeSnapshot,
-    () => "light" as ThemeMode,
-  )
-  const theme = settings.preference
-  const resolvedTheme = theme === "system" ? systemTheme : theme
+  const resolvedTheme = resolveThemeMode(nextResolvedTheme)
 
-  const setTheme: Dispatch<SetStateAction<string>> = (value) => {
-    const nextTheme = typeof value === "function" ? value(theme) : value
-    setStoredThemePreference(resolveStoredThemePreference(nextTheme))
-  }
+  const syncPreferenceSideEffects = useCallback((preference: ThemePreference) => {
+    writeStoredThemePreferenceCookie(preference)
+    notifyThemeSettingsChanged()
+  }, [])
+
+  useEffect(() => {
+    const currentPreference = resolveStoredThemePreference(nextTheme)
+
+    if (syncedInitialThemeRef.current) {
+      syncPreferenceSideEffects(currentPreference)
+      return
+    }
+
+    syncedInitialThemeRef.current = true
+    const storedPreference = readThemeLocalSettingsSnapshot(themeSettings).preference
+
+    if (storedPreference !== currentPreference) {
+      setNextTheme(storedPreference)
+      return
+    }
+
+    syncPreferenceSideEffects(currentPreference)
+  }, [nextTheme, setNextTheme, syncPreferenceSideEffects, themeSettings])
 
   useLayoutEffect(() => {
-    applyTheme(theme, settings.preset, settings.fontSizePreset, themeSettings)
-  }, [resolvedTheme, settings.customThemeConfig, settings.fontSizePreset, settings.preset, theme, themeSettings])
-
-  return (
-    <ThemeContext.Provider
-      value={{
+    try {
+      applyTheme(
         resolvedTheme,
-        setTheme,
-        systemTheme,
-        theme,
-        themeSettings,
-        themes: THEME_CONTEXT_FALLBACK.themes,
-      }}
-    >
-      {children}
-    </ThemeContext.Provider>
-  )
+        localSettings.preset,
+        localSettings.fontSizePreset,
+        themeSettings ?? DEFAULT_THEME_RUNTIME_SETTINGS,
+      )
+    } finally {
+      document.documentElement.setAttribute("data-root-init", "ready")
+    }
+  }, [
+    localSettings.customThemeConfig,
+    localSettings.fontSizePreset,
+    localSettings.preset,
+    resolvedTheme,
+    themeSettings,
+  ])
+
+  return null
 }

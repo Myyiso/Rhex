@@ -14,6 +14,7 @@ import { AiProviderError, resolveAiProvider, type AiProviderConfig } from "@/lib
 import { AiRateLimitError } from "@/lib/ai/rate-limit"
 import { runAiTask } from "@/lib/ai/service"
 import { getServerAiReplyConfig } from "@/lib/ai-reply-config"
+import { getAiSafePostContentText } from "@/lib/post-content"
 import { normalizeManualTags } from "@/lib/post-tags"
 import { slugifyTagName } from "@/lib/post-taxonomy"
 
@@ -644,10 +645,16 @@ async function processAutoCategorizeTask(taskId: string) {
       throw new AutoCategorizeTaskCancelledError("源帖子已不存在，任务已取消")
     }
 
+    const content = task.sourceType === AutoCategorizeTaskSourceType.POST_CREATE
+      ? getAiSafePostContentText(task.content)
+      : task.content
+    const appendedContent = task.sourceType === AutoCategorizeTaskSourceType.POST_CREATE && task.appendedContent
+      ? getAiSafePostContentText(task.appendedContent)
+      : task.appendedContent
     const result = await resolveAutoCategorizeSuggestion({
       title: task.title,
-      content: task.content,
-      appendedContent: task.appendedContent,
+      content,
+      appendedContent,
       allowBoardSuggestion: task.allowBoardSuggestion,
       allowTagSuggestion: task.allowTagSuggestion,
     })
@@ -1140,8 +1147,8 @@ export async function runAutoCategorize({ postId }: { postId: string }): Promise
       postId: post.id,
       requesterUserId: post.authorId,
       title: post.title,
-      content: post.content,
-      appendedContent: post.appendedContent,
+      content: getAiSafePostContentText(post.content),
+      appendedContent: post.appendedContent ? getAiSafePostContentText(post.appendedContent) : null,
       allowBoardSuggestion: autoCfg.writeBoardAutoSelectEnabled,
       allowTagSuggestion: autoCfg.writeTagAutoExtractEnabled,
     })

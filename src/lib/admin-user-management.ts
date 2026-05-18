@@ -32,6 +32,7 @@ export interface AdminUserListItem {
   username: string
   displayName: string
   nickname: string | null
+  avatarPath: string | null
   role: string
   status: string
   email: string | null
@@ -101,6 +102,7 @@ export interface AdminUserListResult {
 
 export interface AdminUserEditableProfile {
   nickname: string
+  avatarPath: string
   email: string
   phone: string
   bio: string
@@ -157,6 +159,7 @@ export interface AdminUserDetailResult {
   username: string
   displayName: string
   nickname: string | null
+  avatarPath: string | null
   role: string
   status: string
   email: string | null

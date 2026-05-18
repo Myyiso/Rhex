@@ -9,15 +9,24 @@ import { AddonSurfaceClientRenderer } from "@/addons-host/client/addon-surface-c
 import { useInboxRealtime } from "@/components/inbox-realtime-provider"
 import { MessageConversationSidebar } from "@/components/message/message-conversation-sidebar"
 import { MessageThreadPanel, type LocalMessageSentPayload } from "@/components/message/message-thread-panel"
+import { showConfirm } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/rbutton"
+import { toast } from "@/components/ui/toast"
 import { summarizeMessagePreview } from "@/lib/message-media"
-import { isSiteChatConversationId, SITE_CHAT_SUBTITLE } from "@/lib/site-chat"
+import {
+  isSiteChatConversationId,
+  SITE_CHAT_CONVERSATION_ID,
+  SITE_CHAT_EMPTY_PREVIEW,
+  SITE_CHAT_SUBTITLE,
+  SITE_CHAT_UPDATED_AT_PLACEHOLDER,
+} from "@/lib/site-chat"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import type {
   MessageBubbleItem,
   MessageCenterData,
   MessageConversationDetail,
   MessageConversationListItem,
+  MessageDeletedStreamEvent,
   MessageHistoryResult,
   MessageParticipantProfile,
 } from "@/lib/message-types"
@@ -25,6 +34,7 @@ import type {
 interface MessagesClientProps {
   currentUser: {
     id: number
+    role?: "USER" | "MODERATOR" | "ADMIN"
   } | null
   initialData: MessageCenterData | null
   conversationId?: string
@@ -72,6 +82,7 @@ export function MessagesClient({
   const conversationRequestTokenRef = useRef(0)
   const conversationRequestsRef = useRef(new Map<string, Promise<MessageConversationDetail | null>>())
   const [deletingConversationId, setDeletingConversationId] = useState("")
+  const [deletingSiteChatMessageId, setDeletingSiteChatMessageId] = useState("")
   const [loadingConversationId, setLoadingConversationId] = useState("")
   const [conversationErrors, setConversationErrors] = useState<Record<string, string>>({})
   const [conversationDetailsById, setConversationDetailsById] = useState<Record<string, MessageConversationDetail>>(() => {
@@ -93,6 +104,7 @@ export function MessagesClient({
   const [liveConversationPatches, setLiveConversationPatches] = useState<Record<string, LiveConversationPatch>>({})
   const [promotedConversationIds, setPromotedConversationIds] = useState<string[]>([])
   const currentUserId = currentUser?.id
+  const canManageSiteChatMessages = currentUser?.role === "ADMIN"
   const requestedConversationId = useMemo(() => {
     const value = searchParams.get("conversation")?.trim() ?? ""
     return value || conversationId
@@ -485,6 +497,99 @@ export function MessagesClient({
     }
   }
 
+  const removeMessageFromConversationState = useCallback((conversationIdToUpdate: string, messageId: string) => {
+    const removeMessage = (message: MessageBubbleItem) => message.id !== messageId
+
+    setConversationDetailsById((current) => {
+      const conversation = current[conversationIdToUpdate]
+      if (!conversation) {
+        return current
+      }
+
+      return {
+        ...current,
+        [conversationIdToUpdate]: {
+          ...conversation,
+          messages: conversation.messages.filter(removeMessage),
+        },
+      }
+    })
+
+    setHistoryMessagesByConversation((current) => filterMessageMapById(current, conversationIdToUpdate, messageId))
+    setIncomingMessagesByConversation((current) => filterMessageMapById(current, conversationIdToUpdate, messageId))
+    setOptimisticMessagesByConversation((current) => filterMessageMapById(current, conversationIdToUpdate, messageId))
+  }, [])
+
+  const applySiteChatDeletedEvent = useCallback((event: MessageDeletedStreamEvent) => {
+    const conversationIdToUpdate = event.conversationId
+
+    removeMessageFromConversationState(conversationIdToUpdate, event.messageId)
+    setLiveConversationPatches((current) => {
+      const latestMessage = event.latestMessage
+
+      return {
+        ...current,
+        [conversationIdToUpdate]: {
+          ...current[conversationIdToUpdate],
+          subtitle: SITE_CHAT_SUBTITLE,
+          preview: latestMessage ? summarizeMessagePreview(latestMessage.content) : SITE_CHAT_EMPTY_PREVIEW,
+          updatedAt: latestMessage?.createdAtLabel ?? SITE_CHAT_UPDATED_AT_PLACEHOLDER,
+        },
+      }
+    })
+  }, [removeMessageFromConversationState])
+
+  async function handleDeleteSiteChatMessage(messageId: string) {
+    if (!canManageSiteChatMessages || deletingSiteChatMessageId) {
+      return
+    }
+
+    const confirmed = await showConfirm({
+      title: "删除聊天消息",
+      description: "确认删除这条全站聊天室消息？删除后会立即从其他在线客户端同步移除。",
+      confirmText: "删除",
+      cancelText: "取消",
+      variant: "danger",
+    })
+
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingSiteChatMessageId(messageId)
+
+    try {
+      const response = await fetch("/api/messages/site-chat/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ messageId }),
+      })
+      const payload = await response.json().catch(() => null)
+
+      if (!response.ok || payload?.code !== 0) {
+        throw new Error(payload?.message ?? "删除消息失败")
+      }
+
+      const deleted = payload.data as Pick<MessageDeletedStreamEvent, "messageId" | "latestMessage"> | undefined
+      applySiteChatDeletedEvent({
+        type: "message.deleted",
+        conversationId: SITE_CHAT_CONVERSATION_ID,
+        messageId: deleted?.messageId ?? messageId,
+        deletedByUserId: currentUserId ?? 0,
+        latestMessage: deleted?.latestMessage,
+        broadcast: "site-chat",
+        occurredAt: new Date().toISOString(),
+      })
+      toast.success("聊天室消息已删除", "删除成功")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除消息失败", "删除失败")
+    } finally {
+      setDeletingSiteChatMessageId("")
+    }
+  }
+
   useEffect(() => {
     if (!activeConversationId) {
       return
@@ -542,6 +647,11 @@ export function MessagesClient({
           updateConversationUrl(nextConversationId, { replace: true })
         }
 
+        return
+      }
+
+      if (payload.type === "message.deleted") {
+        applySiteChatDeletedEvent(payload)
         return
       }
 
@@ -618,7 +728,7 @@ export function MessagesClient({
         void markConversationRead(conversationIdFromEvent)
       }
     })
-  }, [currentUserId, markConversationRead, promoteConversation, shouldUseLiveInboxEvents, subscribe, updateConversationUrl])
+  }, [applySiteChatDeletedEvent, currentUserId, markConversationRead, promoteConversation, shouldUseLiveInboxEvents, subscribe, updateConversationUrl])
 
   const isMobileThreadVisible = Boolean(requestedConversationId)
 
@@ -687,8 +797,11 @@ export function MessagesClient({
         conversationId: requestedConversationId,
         currentUser,
         data,
+        canManageSiteChatMessages,
+        deletingSiteChatMessageId,
         handleLoadHistory,
         handleLocalMessageSent,
+        handleDeleteSiteChatMessage,
         historyError,
         loadingHistory,
       }}
@@ -704,6 +817,9 @@ export function MessagesClient({
             loadingConversation={loadingConversation}
             conversationError={activeConversationError}
             onMessageSent={handleLocalMessageSent}
+            canManageSiteChatMessages={canManageSiteChatMessages}
+            deletingMessageId={deletingSiteChatMessageId}
+            onDeleteMessage={handleDeleteSiteChatMessage}
             onLoadHistory={handleLoadHistory}
             loadingHistory={loadingHistory}
             historyError={historyError}
@@ -752,8 +868,11 @@ export function MessagesClient({
           conversationId: requestedConversationId,
           currentUser,
           data,
+          canManageSiteChatMessages,
           deletingConversationId,
+          deletingSiteChatMessageId,
           handleDeleteConversation,
+          handleDeleteSiteChatMessage,
           handleLoadHistory,
           handleLocalMessageSent,
           historyError,
@@ -942,4 +1061,20 @@ function mergeMessages(...messageGroups: MessageBubbleItem[][]) {
       return left.index - right.index
     })
     .map((entry) => entry.message)
+}
+
+function filterMessageMapById(
+  current: Record<string, MessageBubbleItem[]>,
+  conversationId: string,
+  messageId: string,
+) {
+  const messages = current[conversationId]
+  if (!messages?.length || !messages.some((message) => message.id === messageId)) {
+    return current
+  }
+
+  return {
+    ...current,
+    [conversationId]: messages.filter((message) => message.id !== messageId),
+  }
 }

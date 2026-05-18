@@ -24,7 +24,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: isProductionBuild,
   },
-  serverExternalPackages: ["@napi-rs/canvas", "ioredis", "nodemailer"],
+  serverExternalPackages: ["@napi-rs/canvas", "ioredis", "ip2region", "nodemailer"],
   experimental: {
     serverSourceMaps:false,
     proxyClientMaxBodySize: "64mb",

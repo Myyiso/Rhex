@@ -75,6 +75,26 @@ export interface MessageCreatedStreamEvent {
   recipientId: number
   recipientUnreadMessageCount?: number
   targetUserIds?: number[]
+  broadcast?: "site-chat"
+  occurredAt: string
+}
+
+export interface MessageDeletedStreamEvent {
+  type: "message.deleted"
+  conversationId: string
+  messageId: string
+  deletedByUserId: number
+  latestMessage?: {
+    messageId: string
+    content: string
+    createdAtLabel: string
+    senderId: number
+    senderUsername: string
+    senderDisplayName: string
+    senderAvatarPath: string | null
+    occurredAt: string
+  }
+  broadcast?: "site-chat"
   occurredAt: string
 }
 
@@ -117,6 +137,7 @@ export interface HeartbeatStreamEvent {
 
 export type InboxStreamEvent =
   | MessageCreatedStreamEvent
+  | MessageDeletedStreamEvent
   | ConversationReadStreamEvent
   | ConversationDeletedStreamEvent
   | NotificationCountStreamEvent
