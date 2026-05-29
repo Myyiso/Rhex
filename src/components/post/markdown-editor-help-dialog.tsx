@@ -11,9 +11,10 @@ interface MarkdownEditorHelpDialogProps {
   onClose: () => void
   platform: ClientPlatform
   markdownEmojiMap?: MarkdownEmojiItem[]
+  inFullscreenEditor?: boolean
 }
 
-export function MarkdownEditorHelpDialog({ open, onClose, platform, markdownEmojiMap }: MarkdownEditorHelpDialogProps) {
+export function MarkdownEditorHelpDialog({ open, onClose, platform, markdownEmojiMap, inFullscreenEditor = false }: MarkdownEditorHelpDialogProps) {
   return (
     <Modal
       open={open}
@@ -21,6 +22,8 @@ export function MarkdownEditorHelpDialog({ open, onClose, platform, markdownEmoj
       size="xl"
       title="Markdown 帮助"
       description="查看当前编辑器支持的语法、扩展能力和快捷键。"
+      overlayClassName={inFullscreenEditor ? "z-[240]" : undefined}
+      contentClassName={inFullscreenEditor ? "z-[250]" : undefined}
     >
       <MarkdownContent
         content={buildMarkdownEditorHelp(platform)}

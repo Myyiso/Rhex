@@ -1,7 +1,7 @@
 import fs from "fs"
 import path from "path"
 
-import { createCanvas, GlobalFonts, loadImage, type AvifConfig, type SKRSContext2D } from "@napi-rs/canvas"
+import { createCanvas, GlobalFonts, loadImage, type AvifConfig, type Image, type SKRSContext2D } from "@napi-rs/canvas"
 
 import type { ImageWatermarkPosition } from "@/lib/site-settings-app-state"
 import {
@@ -20,6 +20,8 @@ type WatermarkRenderableSettings = {
   color: string
   fontSize: number
   fontFamily: string
+  logoBuffer?: Buffer | null
+  logoScalePercent: number
   margin: number
   opacity: number
   position: ImageWatermarkPosition
@@ -46,6 +48,13 @@ type PreparedWatermarkLayout = {
   // so sharing is only valid while the same `ctx.font` is in effect — which
   // is the case across prepare/draw on a single canvas.
   widthCache: Map<string, number>
+}
+
+type PreparedImageWatermarkLayout = {
+  image: Image
+  opacityRatio: number
+  overlayHeight: number
+  overlayWidth: number
 }
 
 type GlobalWatermarkRuntimeState = {
@@ -507,27 +516,158 @@ function renderTiledWatermark(
 }
 
 function renderWatermarkOnContext(ctx: SKRSContext2D, width: number, height: number, settings: WatermarkRenderableSettings) {
-  ensureWatermarkFontRegistered()
+  const resolvedSettings = { ...settings }
+  if (resolvedSettings.fontFamily.includes(WATERMARK_FONT_ALIAS)) {
+    ensureWatermarkFontRegistered()
+  }
 
   ctx.save()
   ctx.textBaseline = "top"
   ctx.textAlign = "left"
   ctx.direction = "ltr"
-  const layout = prepareWatermarkLayout(ctx, width, settings)
+  const layout = prepareWatermarkLayout(ctx, width, resolvedSettings)
 
   if (!layout) {
     ctx.restore()
     return false
   }
 
-  if (settings.tiled) {
-    renderTiledWatermark(ctx, width, height, settings, layout)
+  if (resolvedSettings.tiled) {
+    renderTiledWatermark(ctx, width, height, resolvedSettings, layout)
   } else {
-    renderSingleWatermark(ctx, width, height, settings, layout)
+    renderSingleWatermark(ctx, width, height, resolvedSettings, layout)
   }
 
   ctx.restore()
   return true
+}
+
+function resolveImageWatermarkScalePercent(value: number) {
+  const normalized = Number.isFinite(value) ? Math.round(value) : 16
+  return Math.min(60, Math.max(1, normalized))
+}
+
+async function prepareImageWatermarkLayout(width: number, settings: WatermarkRenderableSettings): Promise<PreparedImageWatermarkLayout | null> {
+  if (!settings.logoBuffer || settings.logoBuffer.byteLength === 0) {
+    return null
+  }
+
+  const image = await loadImage(settings.logoBuffer)
+  if (image.width <= 0 || image.height <= 0) {
+    return null
+  }
+
+  const scalePercent = resolveImageWatermarkScalePercent(settings.logoScalePercent)
+  const targetWidth = Math.max(1, Math.round(width * (scalePercent / 100)))
+  const scaleRatio = targetWidth / image.width
+  const targetHeight = Math.max(1, Math.round(image.height * scaleRatio))
+  const opacityRatio = Math.min(1, Math.max(0, Number.isFinite(settings.opacity) ? settings.opacity / 100 : 0.22))
+
+  return {
+    image,
+    opacityRatio,
+    overlayHeight: targetHeight,
+    overlayWidth: targetWidth,
+  }
+}
+
+function renderSingleImageWatermark(
+  ctx: SKRSContext2D,
+  width: number,
+  height: number,
+  settings: WatermarkRenderableSettings,
+  layout: PreparedImageWatermarkLayout,
+) {
+  const placement = resolveWatermarkPlacement({
+    width,
+    height,
+    overlayWidth: layout.overlayWidth,
+    overlayHeight: layout.overlayHeight,
+    position: settings.position,
+    margin: Math.max(0, Math.round(settings.margin || 0)),
+  })
+
+  ctx.save()
+  ctx.globalAlpha = layout.opacityRatio
+  ctx.drawImage(layout.image, placement.x, placement.y, layout.overlayWidth, layout.overlayHeight)
+  ctx.restore()
+}
+
+function renderTiledImageWatermark(
+  ctx: SKRSContext2D,
+  width: number,
+  height: number,
+  settings: WatermarkRenderableSettings,
+  layout: PreparedImageWatermarkLayout,
+) {
+  const margin = Math.max(0, Math.round(settings.margin || 0))
+  let tileStepX = layout.overlayWidth + Math.max(margin * 2, Math.round(layout.overlayWidth * 0.7))
+  let tileStepY = layout.overlayHeight + Math.max(Math.round(margin * 1.5), Math.round(layout.overlayHeight * 0.8))
+  const diagonal = Math.ceil(Math.hypot(width, height))
+  let tileCanvasSize = diagonal + tileStepX * 2
+  const MAX_TILES = 2500
+  const estimateTileCount = () => {
+    const cols = Math.ceil((tileCanvasSize + tileStepX * 2) / Math.max(1, tileStepX)) + 1
+    const rows = Math.ceil((tileCanvasSize + tileStepY * 2) / Math.max(1, tileStepY)) + 1
+    return cols * rows
+  }
+  const projected = estimateTileCount()
+  if (projected > MAX_TILES) {
+    const scale = Math.sqrt(projected / MAX_TILES)
+    tileStepX = Math.max(1, Math.round(tileStepX * scale))
+    tileStepY = Math.max(1, Math.round(tileStepY * scale))
+    tileCanvasSize = diagonal + tileStepX * 2
+  }
+
+  const phase = resolveTilePhase(settings.position, tileStepX, tileStepY)
+  const rotation = -(Math.PI / 9)
+
+  ctx.save()
+  ctx.globalAlpha = layout.opacityRatio
+  ctx.translate(width / 2, height / 2)
+  ctx.rotate(rotation)
+  ctx.translate(-(tileCanvasSize / 2), -(tileCanvasSize / 2))
+
+  let drawn = 0
+  for (let rowIndex = 0, tileY = -tileStepY - phase.y; tileY <= tileCanvasSize + tileStepY; tileY += tileStepY, rowIndex += 1) {
+    const rowOffset = rowIndex % 2 === 0 ? 0 : Math.round(tileStepX / 2)
+
+    for (let tileX = -tileStepX - phase.x + rowOffset; tileX <= tileCanvasSize + tileStepX; tileX += tileStepX) {
+      if (drawn >= MAX_TILES) {
+        ctx.restore()
+        return
+      }
+
+      ctx.drawImage(layout.image, tileX, tileY, layout.overlayWidth, layout.overlayHeight)
+      drawn += 1
+    }
+  }
+
+  ctx.restore()
+}
+
+async function renderImageWatermarkOnContext(ctx: SKRSContext2D, width: number, height: number, settings: WatermarkRenderableSettings) {
+  const layout = await prepareImageWatermarkLayout(width, settings)
+
+  if (!layout) {
+    return false
+  }
+
+  if (settings.tiled) {
+    renderTiledImageWatermark(ctx, width, height, settings, layout)
+  } else {
+    renderSingleImageWatermark(ctx, width, height, settings, layout)
+  }
+
+  return true
+}
+
+async function renderConfiguredWatermarkOnContext(ctx: SKRSContext2D, width: number, height: number, settings: WatermarkRenderableSettings) {
+  const imageRendered = await renderImageWatermarkOnContext(ctx, width, height, settings)
+  const textRendered = settings.text.trim()
+    ? renderWatermarkOnContext(ctx, width, height, settings)
+    : false
+  return imageRendered || textRendered
 }
 
 type WatermarkCanvasMimeType = "image/jpeg" | "image/png" | "image/webp" | "image/avif"
@@ -555,7 +695,7 @@ export async function applyTextWatermarkToBuffer(params: {
   const ctx = canvas.getContext("2d")
 
   ctx.drawImage(image, 0, 0, image.width, image.height)
-  const rendered = renderWatermarkOnContext(ctx, image.width, image.height, params.settings)
+  const rendered = await renderConfiguredWatermarkOnContext(ctx, image.width, image.height, params.settings)
 
   if (!rendered) {
     return params.buffer
@@ -583,7 +723,7 @@ export async function createWatermarkPreviewImageBuffer(settings: WatermarkRende
   drawPreviewBackground(ctx, WATERMARK_PREVIEW_WIDTH, WATERMARK_PREVIEW_HEIGHT)
 
   if (settings.enabled) {
-    renderWatermarkOnContext(ctx, WATERMARK_PREVIEW_WIDTH, WATERMARK_PREVIEW_HEIGHT, settings)
+    await renderConfiguredWatermarkOnContext(ctx, WATERMARK_PREVIEW_WIDTH, WATERMARK_PREVIEW_HEIGHT, settings)
   }
 
   return canvas.encode("png")

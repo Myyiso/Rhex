@@ -27,6 +27,8 @@ interface ModalProps {
   hideHeaderCloseButtonOnMobile?: boolean
   closeDisabled?: boolean
   closeOnEscape?: boolean
+  contentClassName?: string
+  overlayClassName?: string
   onClose: () => void
 }
 
@@ -104,6 +106,8 @@ export function Modal({
   hideHeaderCloseButtonOnMobile = false,
   closeDisabled = false,
   closeOnEscape = true,
+  contentClassName,
+  overlayClassName,
   onClose,
 }: ModalProps) {
   const shouldHideHeaderCloseButtonOnMobile = hideHeaderCloseButtonOnMobile || hasFooterCancelButton(footer)
@@ -129,9 +133,11 @@ export function Modal({
     >
       <DialogContent
         showCloseButton={false}
+        overlayClassName={overlayClassName}
         className={cn(
           "z-[210] flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-h-[calc(100dvh-3rem)]",
-          sizeClassMap[size]
+          sizeClassMap[size],
+          contentClassName
         )}
       >
         <DialogHeader className="gap-3 border-b px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">

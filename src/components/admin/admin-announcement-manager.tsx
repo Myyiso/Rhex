@@ -502,6 +502,7 @@ function EditorFields({
               placeholder="支持 Markdown，帮助文档与公告正文都从这里渲染。"
               minHeight={280}
               uploadFolder="posts"
+              renderFullscreenInDialogPortal
             />
           </Field>
         </>

@@ -47,6 +47,7 @@ export interface RefinedRichPostEditorProps {
   markdownEmojiMap?: MarkdownEmojiItem[]
   markdownImageUploadEnabled?: boolean
   shellClassName?: string
+  renderFullscreenInDialogPortal?: boolean
   privateReplyPostId?: string
   privateReplyRecipient?: PrivateReplyRecipient | null
   onPrivateReplyInsert?: (payload: PrivateReplyInsertPayload) => void

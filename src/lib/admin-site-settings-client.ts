@@ -5,6 +5,18 @@ export interface UploadMarkdownEmojiFilesData {
   items: MarkdownEmojiItem[]
 }
 
+export interface UploadAdminImageData {
+  urlPath: string
+}
+
+function isUploadAdminImageData(value: unknown): value is UploadAdminImageData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+
+  return typeof (value as Record<string, unknown>).urlPath === "string"
+}
+
 function isMarkdownEmojiItem(value: unknown): value is MarkdownEmojiItem {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false
@@ -67,6 +79,34 @@ export async function uploadAdminMarkdownEmojiFiles(files: File[], group?: strin
       {
         validateData: isUploadMarkdownEmojiFilesData,
         defaultSuccessMessage: "上传完成",
+        defaultErrorMessage: "上传失败",
+      },
+    )
+
+    return {
+      ok: true as const,
+      message: result.message,
+      data: result.data,
+    }
+  } catch (error) {
+    return {
+      ok: false as const,
+      message: getAdminClientErrorMessage(error, "上传失败"),
+    }
+  }
+}
+
+export async function uploadAdminWatermarkLogoFile(file: File) {
+  try {
+    const formData = new FormData()
+    formData.append("file", file)
+
+    const result = await adminPost<UploadAdminImageData>(
+      "/api/admin/site-settings/watermark-logo-upload",
+      formData,
+      {
+        validateData: isUploadAdminImageData,
+        defaultSuccessMessage: "上传成功",
         defaultErrorMessage: "上传失败",
       },
     )

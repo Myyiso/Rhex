@@ -27,6 +27,7 @@ type FloatingPanelBaseProps = {
 
 type Base64DialogProps = {
   open: boolean
+  inFullscreenEditor: boolean
   value: string
   preview: string
   mode: "base64" | "private"
@@ -45,6 +46,7 @@ type Base64DialogProps = {
 
 export function Base64Dialog({
   open,
+  inFullscreenEditor,
   value,
   preview,
   mode,
@@ -176,6 +178,8 @@ export function Base64Dialog({
       size="lg"
       title="加密内容"
       description="选择加密方式保护你的内容。"
+      overlayClassName={inFullscreenEditor ? "z-[240]" : undefined}
+      contentClassName={inFullscreenEditor ? "z-[250]" : undefined}
       footer={(
         <div className="flex items-center justify-end gap-2">
           <button

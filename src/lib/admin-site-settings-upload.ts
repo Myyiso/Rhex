@@ -67,7 +67,9 @@ export async function updateUploadSiteSettingsSection(existing: SiteSettingsReco
   const imageWatermarkEnabled = body.imageWatermarkEnabled === undefined
     ? existingImageWatermarkSettings.enabled
     : Boolean(body.imageWatermarkEnabled)
-  const imageWatermarkText = readOptionalStringField(body, "imageWatermarkText") || existingImageWatermarkSettings.text
+  const imageWatermarkText = body.imageWatermarkText === undefined
+    ? existingImageWatermarkSettings.text
+    : readOptionalStringField(body, "imageWatermarkText")
   const imageWatermarkPosition = (readOptionalStringField(body, "imageWatermarkPosition") || existingImageWatermarkSettings.position) as ImageWatermarkPosition
   const imageWatermarkTiled = body.imageWatermarkTiled === undefined
     ? existingImageWatermarkSettings.tiled
@@ -79,7 +81,9 @@ export async function updateUploadSiteSettingsSection(existing: SiteSettingsReco
     : readOptionalStringField(body, "imageWatermarkFontFamily")
   const imageWatermarkMargin = normalizeNonNegativeInteger(body.imageWatermarkMargin, existingImageWatermarkSettings.margin)
   const imageWatermarkColor = readOptionalStringField(body, "imageWatermarkColor") || existingImageWatermarkSettings.color
-  const imageWatermarkLogoPath = readOptionalStringField(body, "imageWatermarkLogoPath") || existingImageWatermarkSettings.logoPath
+  const imageWatermarkLogoPath = body.imageWatermarkLogoPath === undefined
+    ? existingImageWatermarkSettings.logoPath
+    : readOptionalStringField(body, "imageWatermarkLogoPath")
   const imageWatermarkLogoScalePercent = normalizePositiveInteger(body.imageWatermarkLogoScalePercent, existingImageWatermarkSettings.logoScalePercent)
   const attachmentUploadEnabled = body.attachmentUploadEnabled === undefined
     ? existingAttachmentFeatureSettings.uploadEnabled
@@ -107,8 +111,8 @@ export async function updateUploadSiteSettingsSection(existing: SiteSettingsReco
     apiError(400, "请至少配置一种允许上传的附件格式")
   }
 
-  if (imageWatermarkEnabled && !imageWatermarkText.trim()) {
-    apiError(400, "启用图片水印时请填写水印文字")
+  if (imageWatermarkEnabled && !imageWatermarkText.trim() && !imageWatermarkLogoPath.trim()) {
+    apiError(400, "启用图片水印时请填写水印文字或上传水印图片")
   }
 
   if (imageWatermarkText.length > WATERMARK_TEXT_MAX_LENGTH) {

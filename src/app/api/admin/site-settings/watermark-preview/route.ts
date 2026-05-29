@@ -2,6 +2,8 @@ import { createAdminRouteHandler } from "@/lib/api-route"
 import { createWatermarkPreviewImageBuffer } from "@/lib/watermark-lib.server"
 import { WATERMARK_TEXT_MAX_LENGTH } from "@/lib/watermark-lib"
 import type { ImageWatermarkPosition } from "@/lib/site-settings-app-state"
+import { getSiteSettings } from "@/lib/site-settings"
+import { resolveWatermarkLogoBuffer } from "@/lib/watermark-logo.server"
 
 const WATERMARK_POSITIONS: ImageWatermarkPosition[] = ["TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT", "CENTER"]
 
@@ -31,6 +33,7 @@ function parsePosition(value: string | null, fallback: ImageWatermarkPosition) {
 
 export const GET = createAdminRouteHandler(async ({ request }) => {
   const searchParams = new URL(request.url).searchParams
+  const settings = await getSiteSettings()
   const rawText = searchParams.get("text") ?? ""
   // Defense in depth: cap text length at the route entry so a crafted URL
   // cannot drive watermark layout into super-linear CPU work.
@@ -45,6 +48,11 @@ export const GET = createAdminRouteHandler(async ({ request }) => {
     opacity: parseNumber(searchParams.get("opacity"), 22),
     fontSize: parseNumber(searchParams.get("fontSize"), 24),
     fontFamily: searchParams.get("fontFamily") ?? "",
+    logoBuffer: await resolveWatermarkLogoBuffer({
+      logoPath: searchParams.get("logoPath") ?? "",
+      uploadLocalPath: settings.uploadLocalPath,
+    }),
+    logoScalePercent: parseNumber(searchParams.get("logoScalePercent"), 16),
     margin: parseNumber(searchParams.get("margin"), 24),
     color: searchParams.get("color") ?? "#FFFFFF",
   })

@@ -15,6 +15,7 @@ import { getPrimaryUploadExtensionForMimeType, getUploadMimeType } from "@/lib/u
 import { applyTextWatermarkToBuffer } from "@/lib/watermark-lib.server"
 import { saveWithAddonUploadProvider } from "@/lib/addon-upload-providers"
 import type { AddonUploadActor } from "@/addons-host/upload-types"
+import { resolveWatermarkLogoBuffer } from "@/lib/watermark-logo.server"
 
 export interface SavedUploadFile {
   fileName: string
@@ -50,10 +51,12 @@ type ImageWatermarkConfig = Pick<
   | "imageWatermarkFontFamily"
   | "imageWatermarkMargin"
   | "imageWatermarkColor"
+  | "imageWatermarkLogoPath"
+  | "imageWatermarkLogoScalePercent"
 >
 type WatermarkUploadSettings = ImageWatermarkConfig & Pick<
   UploadSettings,
-  never
+  "uploadLocalPath"
 >
 
 const IMAGE_MIME_TYPES = new Set([
@@ -115,7 +118,7 @@ function shouldApplyImageWatermark(params: {
 }) {
   return Boolean(
     params.settings?.imageWatermarkEnabled
-    && params.settings.imageWatermarkText.trim()
+    && (params.settings.imageWatermarkText.trim() || params.settings.imageWatermarkLogoPath.trim())
     && params.folder
     && WATERMARK_APPLICABLE_FOLDERS.has(params.folder)
     && isWatermarkSupportedMimeType(params.detectedMime),
@@ -158,6 +161,11 @@ async function applyImageWatermarkToBuffer(params: {
         color: params.settings!.imageWatermarkColor,
         fontSize: params.settings!.imageWatermarkFontSize,
         fontFamily: params.settings!.imageWatermarkFontFamily,
+        logoBuffer: await resolveWatermarkLogoBuffer({
+          logoPath: params.settings!.imageWatermarkLogoPath,
+          uploadLocalPath: params.settings!.uploadLocalPath,
+        }),
+        logoScalePercent: params.settings!.imageWatermarkLogoScalePercent,
         margin: params.settings!.imageWatermarkMargin,
         opacity: params.settings!.imageWatermarkOpacity,
         position: params.settings!.imageWatermarkPosition,

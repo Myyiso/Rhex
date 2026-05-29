@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { createPortal } from "react-dom"
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 
 import { useAddonEditorToolbarItems } from "@/addons-host/client/addon-runtime-provider"
 import type {
@@ -140,6 +141,7 @@ export function RefinedRichPostEditor({
   markdownEmojiMap: externalMarkdownEmojiMap,
   markdownImageUploadEnabled: externalMarkdownImageUploadEnabled,
   shellClassName,
+  renderFullscreenInDialogPortal = false,
   privateReplyPostId,
   privateReplyRecipient,
   onPrivateReplyInsert,
@@ -423,7 +425,7 @@ export function RefinedRichPostEditor({
   }), [commands.toolbarActions, onChange, selectionState, value])
 
   const editorShell = (
-    <div className={viewState.isFullscreen ? "fixed inset-0 z-[120] bg-black/45 p-4 md:p-6" : ""}>
+    <div data-markdown-editor-fullscreen={viewState.isFullscreen ? "true" : undefined} className={viewState.isFullscreen ? "fixed inset-0 z-[215] bg-black/45 p-4 md:p-6" : ""}>
       <div className={viewState.isFullscreen ? "flex h-full w-full items-center justify-center" : ""}>
         <div
           className={cn(
@@ -533,13 +535,21 @@ export function RefinedRichPostEditor({
   return (
     <>
       {viewState.isFullscreen && isClient
-        ? createPortal(editorShell, document.body)
+        ? renderFullscreenInDialogPortal
+          ? createPortal(
+              <DialogPrimitive.Portal>
+                {editorShell}
+              </DialogPrimitive.Portal>,
+              document.body,
+            )
+          : createPortal(editorShell, document.body)
         : editorShell}
       <MarkdownEditorHelpDialog
         open={panels.helpDialog.open}
         onClose={panels.helpDialog.closeDialog}
         platform={shortcutPlatform}
         markdownEmojiMap={markdownEmojiMap}
+        inFullscreenEditor={viewState.isFullscreen}
       />
       {isClient ? createPortal(
         <AiMentionPanel
@@ -556,6 +566,7 @@ export function RefinedRichPostEditor({
       ) : null}
       <Base64Dialog
         open={panels.base64Dialog.open}
+        inFullscreenEditor={viewState.isFullscreen}
         value={panels.base64Dialog.value}
         preview={panels.base64Dialog.preview}
         mode={panels.base64Dialog.mode}
@@ -574,6 +585,7 @@ export function RefinedRichPostEditor({
       <FloatingSelectionToolbar
         visible={!disabled && (viewState.activeTab === "write" || viewState.activeTab === "live-preview")}
         isClient={isClient}
+        isFullscreen={viewState.isFullscreen}
         textareaRef={textareaRef}
         selectionStore={selectionStore}
         platform={shortcutPlatform}

@@ -148,6 +148,8 @@ export const defaultSiteSettingsCreateInput = {
         fontFamily: "",
         margin: 24,
         color: "#FFFFFF",
+        logoPath: "",
+        logoScalePercent: 16,
       },
       registrationEmailTemplates: {
         registerVerification: {

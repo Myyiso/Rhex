@@ -3,6 +3,7 @@
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useDeferredValue, useState, useTransition } from "react"
+import { ImageIcon, Upload, X } from "lucide-react"
 
 import { AccessThresholdSelectGroup } from "@/components/access-threshold-select-group"
 import {
@@ -14,13 +15,15 @@ import {
 import { AdminSettingsSubTabs } from "@/components/admin/admin-settings-sub-tabs"
 import { ColorPicker, normalizeHexColor } from "@/components/ui/color-picker"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
 import type { AccessThresholdOption } from "@/lib/access-threshold-options"
-import { saveAdminSiteSettings } from "@/lib/admin-site-settings-client"
+import { saveAdminSiteSettings, uploadAdminWatermarkLogoFile } from "@/lib/admin-site-settings-client"
 import { getAdminSettingsHref } from "@/lib/admin-settings-navigation"
 import type { AdminSettingsSectionKey } from "@/lib/admin-navigation"
 import type { UploadProvider } from "@/lib/upload-provider"
 import type { ImageWatermarkPosition } from "@/lib/site-settings-app-state"
+import { WATERMARK_FONT_ALIAS } from "@/lib/watermark-lib"
 
 interface AdminUploadSettingsFormProps {
   initialSettings: {
@@ -46,6 +49,8 @@ interface AdminUploadSettingsFormProps {
     imageWatermarkFontFamily: string
     imageWatermarkMargin: number
     imageWatermarkColor: string
+    imageWatermarkLogoPath: string
+    imageWatermarkLogoScalePercent: number
     attachmentUploadEnabled: boolean
     attachmentDownloadEnabled: boolean
     attachmentMinUploadLevel: number
@@ -87,7 +92,7 @@ const WATERMARK_FONT_PRESETS: Array<{
   value: string
 }> = [
   { key: "default", label: "默认字体栈", value: "" },
-  { key: "zhimangxing", label: "芝麻行草", value: '"Zhi Mang Xing", cursive' },
+  { key: "zhimangxing", label: "芝芒行书", value: `"${WATERMARK_FONT_ALIAS}", cursive` },
   { key: "yahei", label: "微软雅黑", value: '"Microsoft YaHei", sans-serif' },
   { key: "pingfang", label: "苹方", value: '"PingFang SC", "Hiragino Sans GB", sans-serif' },
   { key: "noto-sans", label: "思源黑体", value: '"Noto Sans SC", "Source Han Sans SC", sans-serif' },
@@ -157,6 +162,9 @@ export function AdminUploadSettingsForm({
   const [customImageWatermarkFontFamily, setCustomImageWatermarkFontFamily] = useState(() => resolveWatermarkFontPresetKey(initialSettings.imageWatermarkFontFamily ?? "") === "custom" ? (initialSettings.imageWatermarkFontFamily ?? "") : "")
   const [imageWatermarkMargin, setImageWatermarkMargin] = useState(String(initialSettings.imageWatermarkMargin ?? 24))
   const [imageWatermarkColor, setImageWatermarkColor] = useState(initialSettings.imageWatermarkColor ?? "#FFFFFF")
+  const [imageWatermarkLogoPath, setImageWatermarkLogoPath] = useState(initialSettings.imageWatermarkLogoPath ?? "")
+  const [imageWatermarkLogoScalePercent, setImageWatermarkLogoScalePercent] = useState(String(initialSettings.imageWatermarkLogoScalePercent ?? 16))
+  const [watermarkLogoUploading, setWatermarkLogoUploading] = useState(false)
   const [attachmentUploadEnabled, setAttachmentUploadEnabled] = useState(normalizedAttachmentUploadEnabled)
   const [attachmentDownloadEnabled, setAttachmentDownloadEnabled] = useState(normalizedAttachmentDownloadEnabled)
   const [attachmentMinUploadLevel, setAttachmentMinUploadLevel] = useState(String(normalizedAttachmentMinUploadLevel))
@@ -171,6 +179,7 @@ export function AdminUploadSettingsForm({
   const normalizedImageWatermarkOpacity = normalizeSliderNumber(imageWatermarkOpacity, initialSettings.imageWatermarkOpacity ?? 22, 0, 100)
   const normalizedImageWatermarkFontSize = normalizeSliderNumber(imageWatermarkFontSize, initialSettings.imageWatermarkFontSize ?? 24, 8, 160)
   const normalizedImageWatermarkMargin = normalizeSliderNumber(imageWatermarkMargin, initialSettings.imageWatermarkMargin ?? 24, 0, 200)
+  const normalizedImageWatermarkLogoScalePercent = normalizeSliderNumber(imageWatermarkLogoScalePercent, initialSettings.imageWatermarkLogoScalePercent ?? 16, 1, 60)
   const isCustomWatermarkFontFamily = imageWatermarkFontPresetKey === "custom"
   const useRemoteStorage = uploadProvider === "s3"
   const currentTabSaveLabel = activeTab === "storage"
@@ -178,6 +187,27 @@ export function AdminUploadSettingsForm({
     : activeTab === "watermark"
       ? "保存水印配置"
       : "保存附件配置"
+
+  async function handleWatermarkLogoUpload(file: File) {
+    if (file.type && !file.type.startsWith("image/")) {
+      setFeedback("请先选择图片格式的水印文件")
+      return
+    }
+
+    setFeedback("")
+    setWatermarkLogoUploading(true)
+
+    try {
+      const result = await uploadAdminWatermarkLogoFile(file)
+      setFeedback(result.message)
+
+      if (result.ok) {
+        setImageWatermarkLogoPath(result.data.urlPath)
+      }
+    } finally {
+      setWatermarkLogoUploading(false)
+    }
+  }
 
   return (
     <form
@@ -210,6 +240,8 @@ export function AdminUploadSettingsForm({
             imageWatermarkFontFamily,
             imageWatermarkMargin: normalizedImageWatermarkMargin,
             imageWatermarkColor,
+            imageWatermarkLogoPath,
+            imageWatermarkLogoScalePercent: normalizedImageWatermarkLogoScalePercent,
             attachmentUploadEnabled,
             attachmentDownloadEnabled,
             attachmentMinUploadLevel: Number(attachmentMinUploadLevel),
@@ -272,8 +304,15 @@ export function AdminUploadSettingsForm({
         {activeTab === "watermark" ? (
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <SettingsToggleField label="启用图片水印" checked={imageWatermarkEnabled} onChange={setImageWatermarkEnabled} description="开启后会在服务端保存前写入文字水印。" />
+              <SettingsToggleField label="启用图片水印" checked={imageWatermarkEnabled} onChange={setImageWatermarkEnabled} description="开启后会在服务端保存前写入文字或图片水印，远程存储也会先处理图片后再上传。" />
               <SettingsInputField label="水印文字" value={imageWatermarkText} onChange={setImageWatermarkText} placeholder="如 @站点名称 / 禁止转载" />
+              <WatermarkLogoUploadField
+                value={imageWatermarkLogoPath}
+                uploading={watermarkLogoUploading}
+                onValueChange={setImageWatermarkLogoPath}
+                onUpload={handleWatermarkLogoUpload}
+                onClear={() => setImageWatermarkLogoPath("")}
+              />
               <SettingsSelectField
                 label="水印位置"
                 value={imageWatermarkPosition}
@@ -359,6 +398,15 @@ export function AdminUploadSettingsForm({
                 onChange={(nextValue) => setImageWatermarkMargin(String(nextValue))}
                 description="单点模式表示离边缘的距离，铺满模式表示相邻水印之间的间距。"
               />
+              <WatermarkSliderField
+                label="图片水印宽度"
+                value={normalizedImageWatermarkLogoScalePercent}
+                min={1}
+                max={60}
+                suffix="%"
+                onChange={(nextValue) => setImageWatermarkLogoScalePercent(String(nextValue))}
+                description="按原图宽度比例缩放水印图片，高度会按图片自身比例自动计算。"
+              />
             </div>
             <WatermarkPreview
               enabled={imageWatermarkEnabled}
@@ -370,6 +418,8 @@ export function AdminUploadSettingsForm({
               fontFamily={imageWatermarkFontFamily}
               margin={normalizedImageWatermarkMargin}
               color={imageWatermarkColor}
+              logoPath={imageWatermarkLogoPath}
+              logoScalePercent={normalizedImageWatermarkLogoScalePercent}
             />
           </div>
         ) : null}
@@ -423,6 +473,8 @@ function WatermarkPreview({
   fontFamily,
   margin,
   color,
+  logoPath,
+  logoScalePercent,
 }: {
   enabled: boolean
   text: string
@@ -433,6 +485,8 @@ function WatermarkPreview({
   fontFamily: string
   margin: number
   color: string
+  logoPath: string
+  logoScalePercent: number
 }) {
   const previewQuery = new URLSearchParams({
     enabled: enabled ? "1" : "0",
@@ -444,6 +498,8 @@ function WatermarkPreview({
     fontFamily,
     margin: String(margin),
     color: normalizeHexColor(color || "#FFFFFF", "#FFFFFF"),
+    logoPath,
+    logoScalePercent: String(logoScalePercent),
   }).toString()
   const previewUrl = useDeferredValue(`/api/admin/site-settings/watermark-preview?${previewQuery}`)
 
@@ -470,6 +526,74 @@ function WatermarkPreview({
           </div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function WatermarkLogoUploadField({
+  value,
+  uploading,
+  onValueChange,
+  onUpload,
+  onClear,
+}: {
+  value: string
+  uploading: boolean
+  onValueChange: (value: string) => void
+  onUpload: (file: File) => void | Promise<void>
+  onClear: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-2 md:col-span-2 xl:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">水印图片</span>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={uploading} nativeButton={false} render={(buttonProps) => (
+            <label {...buttonProps} className={`${buttonProps.className ?? ""} cursor-pointer`}>
+              <Upload data-icon="inline-start" />
+              {uploading ? "上传中..." : "上传图片"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/avif"
+                className="hidden"
+                disabled={uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) {
+                    void onUpload(file)
+                  }
+                  event.target.value = ""
+                }}
+              />
+            </label>
+          )} />
+          <Button type="button" variant="ghost" size="icon-sm" disabled={!value || uploading} onClick={onClear} title="清空水印图片">
+            <X />
+          </Button>
+        </div>
+      </div>
+      <Input
+        value={value}
+        onChange={(event) => onValueChange(event.target.value)}
+        className="h-11 rounded-xl bg-background px-4 text-sm"
+        placeholder="上传后自动填入，也可以填写 /uploads/... 图片地址"
+      />
+      {value ? (
+        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-3">
+          <div className="relative flex aspect-video w-32 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background">
+            <Image src={value} alt="水印图片预览" fill sizes="128px" className="object-contain p-2" unoptimized />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <ImageIcon data-icon="inline-start" />
+              <span className="truncate">已选择图片水印</span>
+            </div>
+            <p className="truncate text-xs text-muted-foreground">{value}</p>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs leading-5 text-muted-foreground">图片水印适合使用透明 PNG/WebP；可单独使用，也可以和文字水印叠加。</p>
+      )}
     </div>
   )
 }

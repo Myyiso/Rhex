@@ -24,7 +24,8 @@ export type WatermarkRenderPresentation = {
 }
 
 export const WATERMARK_FONT_ALIAS = "BBS Watermark"
-export const WATERMARK_DEFAULT_FONT_FAMILY = `"${WATERMARK_FONT_ALIAS}","Microsoft YaHei","Noto Sans SC","PingFang SC","Hiragino Sans GB","Source Han Sans SC",sans-serif`
+export const WATERMARK_HANDWRITING_FONT_FAMILY = `"${WATERMARK_FONT_ALIAS}", cursive`
+export const WATERMARK_DEFAULT_FONT_FAMILY = `"Microsoft YaHei", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Source Han Sans SC", sans-serif`
 export const WATERMARK_PREVIEW_WIDTH = 1280
 export const WATERMARK_PREVIEW_HEIGHT = 720
 
@@ -110,21 +111,33 @@ export function normalizeWatermarkText(value: string) {
 }
 
 export function normalizeWatermarkFontFamily(value: unknown) {
-  return typeof value === "string"
-    ? value
-      // Defense-in-depth: strip any character that could break out of the
-      // `${size}px ${fontFamily}` Canvas font shorthand or smuggle extra CSS
-      // tokens. In addition to the original `;\r\n\t`, we drop parentheses
-      // (would-be function calls such as `url(...)`), quotes (font-name
-      // quoting boundaries), braces/at-signs (block / at-rules) and
-      // backslashes (CSS escape sequences). @napi-rs/canvas (Skia) does not
-      // resolve `url()` today, so this is preventative rather than a fix for
-      // a known exploit.
-      .replace(/[;\r\n\t()"'{}\\@]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 240)
-    : ""
+  if (typeof value !== "string") {
+    return ""
+  }
+
+  return value
+    .split(",")
+    .map((item) => {
+      const family = item
+        .replace(/[;\r\n\t(){}\\@]+/g, " ")
+        .trim()
+        .replace(/^["']+|["']+$/g, "")
+        .replace(/\s+/g, " ")
+
+      if (!family || family.length > 80) {
+        return ""
+      }
+
+      if (/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace)$/i.test(family)) {
+        return family.toLowerCase()
+      }
+
+      const escapedFamily = family.replace(/"/g, "")
+      return `"${escapedFamily}"`
+    })
+    .filter(Boolean)
+    .join(", ")
+    .slice(0, 240)
 }
 
 export function resolveWatermarkFontFamily(value: unknown) {

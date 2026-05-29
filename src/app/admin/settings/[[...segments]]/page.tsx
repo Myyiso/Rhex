@@ -250,6 +250,8 @@ export default async function AdminSettingsPage(
               imageWatermarkFontFamily: siteSettings!.imageWatermarkFontFamily ?? "",
               imageWatermarkMargin: Number(siteSettings!.imageWatermarkMargin ?? 24),
               imageWatermarkColor: siteSettings!.imageWatermarkColor,
+              imageWatermarkLogoPath: siteSettings!.imageWatermarkLogoPath,
+              imageWatermarkLogoScalePercent: Number(siteSettings!.imageWatermarkLogoScalePercent ?? 16),
               attachmentUploadEnabled: Boolean(siteSettings!.attachmentUploadEnabled),
               attachmentDownloadEnabled: Boolean(siteSettings!.attachmentDownloadEnabled),
               attachmentMinUploadLevel: Number(siteSettings!.attachmentMinUploadLevel ?? 0),

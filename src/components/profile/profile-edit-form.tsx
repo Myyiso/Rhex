@@ -904,6 +904,7 @@ export function ProfileEditForm({
             uploadFolder="profiles"
             markdownEmojiMap={markdownEmojiMap}
             markdownImageUploadEnabled={markdownImageUploadEnabled}
+            renderFullscreenInDialogPortal
             placeholder="写一段更完整的自我介绍、经历、兴趣或作品清单。支持 Markdown 语法。"
           />
           <p className="text-xs text-muted-foreground">{introductionHint}</p>

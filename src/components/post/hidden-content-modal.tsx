@@ -87,6 +87,7 @@ function HiddenContentModalBody({ open, title, description, initialValue, initia
           onChange={setDraftValue}
           placeholder="写下这部分隐藏内容，支持 Markdown、图片和表情。"
           minHeight={260}
+          renderFullscreenInDialogPortal
         />
       </div>
     </Modal>

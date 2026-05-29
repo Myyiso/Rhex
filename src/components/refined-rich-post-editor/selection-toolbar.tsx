@@ -11,10 +11,12 @@ import type {
   SelectionToolbarPosition,
 } from "@/components/refined-rich-post-editor/types"
 import type { ClientPlatform } from "@/lib/client-platform"
+import { cn } from "@/lib/utils"
 
 type FloatingSelectionToolbarProps = {
   visible: boolean
   isClient: boolean
+  isFullscreen: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   selectionStore: EditorSelectionStore
   platform: ClientPlatform
@@ -160,6 +162,7 @@ function getTextareaSelectionRect(
 export function FloatingSelectionToolbar({
   visible,
   isClient,
+  isFullscreen,
   textareaRef,
   selectionStore,
   platform,
@@ -287,7 +290,10 @@ export function FloatingSelectionToolbar({
   return createPortal(
     <div
       ref={toolbarRef}
-      className="fixed z-[140] flex items-center gap-0.5 rounded-[18px] border border-slate-200/80 bg-background/96 p-1 shadow-[0_18px_40px_rgba(15,23,42,0.18)] backdrop-blur-md dark:border-slate-700/80"
+      className={cn(
+        "fixed flex items-center gap-0.5 rounded-[18px] border border-slate-200/80 bg-background/96 p-1 shadow-[0_18px_40px_rgba(15,23,42,0.18)] backdrop-blur-md dark:border-slate-700/80",
+        isFullscreen ? "z-[230]" : "z-[140]",
+      )}
       style={{
         top: position.top,
         left: position.left,
