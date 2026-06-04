@@ -1,5 +1,3 @@
-import { revalidatePath } from "next/cache"
-
 import type {
   AddonAdminDetailData,
   AddonAdminItem,
@@ -10,7 +8,7 @@ import {
   clearAddonsRuntimeCache,
   loadAddonsRuntimeFresh,
 } from "@/addons-host/runtime/loader"
-import { revalidateGlobalLayoutAddonSlotsCache } from "@/addons-host/runtime/global-layout-slot-cache"
+import { revalidateAddonRuntimeCaches } from "@/addons-host/runtime/cache-invalidation"
 import {
   buildAddonRelationCatalog,
   collectDependentAddonIssues,
@@ -21,10 +19,13 @@ import {
   addonMayUseBackgroundJobs,
   cleanupAddonBackgroundJobs,
 } from "@/addons-host/runtime/background-jobs"
+import {
+  deleteAddonState,
+  writeAddonStateSnapshot,
+} from "@/addons-host/runtime/state"
 import type { AddonStateRecord, LoadedAddonRuntime } from "@/addons-host/types"
 import {
   createAddonLifecycleLog,
-  deleteAddonRegistryRecord,
   listAddonLifecycleLogs,
   listAddonRegistryRecords,
   upsertAddonRegistryRecord,
@@ -148,7 +149,7 @@ async function persistAddonState(
     lastErrorMessage: nextState.lastErrorMessage ?? addon.loadError ?? null,
   }
 
-  const registryRecord = await upsertAddonRegistryRecord({
+  await upsertAddonRegistryRecord({
     addonId: addon.manifest.id,
     name: addon.manifest.name,
     version: addon.manifest.version,
@@ -169,7 +170,9 @@ async function persistAddonState(
     lastErrorMessage: normalizedState.lastErrorMessage ?? null,
   })
 
-  if (registryRecord && log) {
+  await writeAddonStateSnapshot(addon.manifest.id, normalizedState)
+
+  if (log) {
     await createAddonLifecycleLog({
       addonId: addon.manifest.id,
       action: log.action,
@@ -206,7 +209,7 @@ async function syncAddonRegistryStateSnapshot(): Promise<SyncedAddonRegistrySnap
       await deleteAddonConfigValues(staleAddonId)
       await deleteAddonDataStore(staleAddonId)
       await deleteAddonSecretValues(staleAddonId)
-      await deleteAddonRegistryRecord(staleAddonId)
+      await deleteAddonState(staleAddonId)
     }
   }
 
@@ -302,31 +305,9 @@ export async function getAddonAdminDetailData(addonId: string): Promise<AddonAdm
   }
 }
 
-function revalidateAddonManagementPaths(addonId: string) {
-  safeRevalidatePath("/admin/addons")
-  safeRevalidatePath("/addons")
-  if (addonId) {
-    safeRevalidatePath(`/admin/addons/${addonId}`)
-    safeRevalidatePath(`/addons/${addonId}`)
-  }
-}
-
-function refreshAddonRuntime(addonId: string) {
+function refreshAddonRuntime(addonId?: string | null) {
   clearAddonsRuntimeCache()
-  revalidateGlobalLayoutAddonSlotsCache()
-  revalidateAddonManagementPaths(addonId)
-}
-
-function safeRevalidatePath(targetPath: string, type?: "page" | "layout") {
-  try {
-    if (type) {
-      revalidatePath(targetPath, type)
-    } else {
-      revalidatePath(targetPath)
-    }
-  } catch {
-    // Ignore when called outside a Next.js request context, e.g. CLI scripts.
-  }
+  revalidateAddonRuntimeCaches(addonId)
 }
 
 function buildAddonRelationSnapshot(addons: LoadedAddonRuntime[]) {
@@ -341,10 +322,8 @@ function buildAddonRelationSnapshot(addons: LoadedAddonRuntime[]) {
 
 export async function runAddonManagementAction(action: AddonManagementAction, addonId?: string | null) {
   if (action === "sync") {
-    clearAddonsRuntimeCache()
-    revalidateGlobalLayoutAddonSlotsCache()
+    refreshAddonRuntime(addonId?.trim() || "")
     const count = await syncAddonRegistryState()
-    revalidateAddonManagementPaths(addonId?.trim() || "")
     return {
       data: await getAddonsAdminData(),
       message: `已同步 ${count} 个插件目录`,
@@ -354,12 +333,7 @@ export async function runAddonManagementAction(action: AddonManagementAction, ad
   if (action === "clear-cache") {
     clearAddonsRuntimeCache()
     const result = await clearRecoveredAddonErrors()
-    revalidateGlobalLayoutAddonSlotsCache()
-    revalidateAddonManagementPaths(addonId?.trim() || "")
-    // 额外刷掉 Next.js Full Route Cache：插件 slot（如 layout.body.end / home.right.top）
-    // 分布在根 layout 和各页面，这里用 layout 级 revalidate 一次性清理所有被 SSR 缓存的页面，
-    // 让下一个请求重新走 SSR 并拉到最新的插件渲染结果（仍需插件代码已重载）。
-    safeRevalidatePath("/", "layout")
+    refreshAddonRuntime(addonId?.trim() || "")
     return {
       data: await getAddonsAdminData(),
       message:

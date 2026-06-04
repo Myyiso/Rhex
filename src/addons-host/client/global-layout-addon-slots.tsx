@@ -171,6 +171,7 @@ function renderBlocks(blocks: GlobalLayoutAddonSlotBlock[], namespace: string) {
 
 async function fetchPayload(pathname: string, signal: AbortSignal) {
   const response = await fetch(`/api/addons/global-layout-slots?pathname=${encodeURIComponent(pathname)}`, {
+    cache: "no-store",
     credentials: "same-origin",
     signal,
   })
@@ -197,11 +198,11 @@ export function GlobalLayoutAddonSlots({
     const cachedPayload = payloadCache.get(pathname)
     if (cachedPayload) {
       setPayload(cachedPayload)
-      return
+    } else {
+      setPayload(null)
     }
 
     const controller = new AbortController()
-    setPayload(null)
 
     void fetchPayload(pathname, controller.signal)
       .then((nextPayload) => {

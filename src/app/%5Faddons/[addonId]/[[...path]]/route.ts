@@ -3,6 +3,7 @@ import path from "node:path"
 
 import { NextResponse } from "next/server"
 
+import { findLoadedAddonById } from "@/addons-host/runtime/loader"
 import { fileExists, getAddonAssetsDirectory, isValidAddonId, resolveSafeAddonChildPath } from "@/addons-host/runtime/fs"
 
 type RouteContext = {
@@ -47,6 +48,11 @@ async function handleAssetRequest(context: RouteContext) {
   const params = await context.params
   if (!isValidAddonId(params.addonId)) {
     return NextResponse.json({ code: 400, message: "非法插件标识" }, { status: 400 })
+  }
+
+  const addon = await findLoadedAddonById(params.addonId)
+  if (!addon || !addon.enabled || addon.loadError) {
+    return NextResponse.json({ code: 404, message: "插件资源不存在" }, { status: 404 })
   }
 
   const assetRoot = getAddonAssetsDirectory(params.addonId)

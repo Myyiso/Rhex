@@ -6,7 +6,6 @@ import AdmZip from "adm-zip"
 
 import {
   createAddonLifecycleLog,
-  deleteAddonRegistryRecord,
   upsertAddonRegistryRecord,
 } from "@/db/addon-registry-queries"
 import { executeAddonActionHook } from "@/addons-host/runtime/hooks"
@@ -16,7 +15,7 @@ import {
   findLoadedAddonById,
   loadAddonsRuntimeFresh,
 } from "@/addons-host/runtime/loader"
-import { revalidateGlobalLayoutAddonSlotsCache } from "@/addons-host/runtime/global-layout-slot-cache"
+import { revalidateAddonRuntimeCaches } from "@/addons-host/runtime/cache-invalidation"
 import {
   addonMayUseBackgroundJobs,
   cleanupAddonBackgroundJobs,
@@ -49,6 +48,10 @@ import { syncAddonRegistryState } from "@/addons-host/management"
 import { deleteAddonConfigValues } from "@/addons-host/runtime/config"
 import { deleteAddonDataStore } from "@/addons-host/runtime/data"
 import { deleteAddonSecretValues } from "@/addons-host/runtime/secrets"
+import {
+  deleteAddonState,
+  writeAddonStateSnapshot,
+} from "@/addons-host/runtime/state"
 import type { AddonManifest } from "@/addons-host/types"
 
 interface InstallAddonFromZipInput {
@@ -123,6 +126,11 @@ async function cleanupAddonPersistentState(addonId: string) {
   await deleteAddonConfigValues(addonId)
   await deleteAddonDataStore(addonId)
   await deleteAddonSecretValues(addonId)
+}
+
+function refreshAddonRuntime(addonId?: string | null) {
+  clearAddonsRuntimeCache()
+  revalidateAddonRuntimeCaches(addonId)
 }
 
 async function readAddonManifestFromDirectory(rootDir: string) {
@@ -474,6 +482,9 @@ export async function installAddonFromZip(input: InstallAddonFromZipInput) {
     }
 
     const now = new Date().toISOString()
+    const installedAt = new Date(now)
+    const disabledAt = enableAfterInstall ? null : new Date(now)
+
     await upsertAddonRegistryRecord({
       addonId: manifest.id,
       name: manifest.name,
@@ -484,15 +495,22 @@ export async function installAddonFromZip(input: InstallAddonFromZipInput) {
       enabled: enableAfterInstall,
       manifestJson: manifest,
       permissionsJson: manifest.permissions ?? [],
-      installedAt: new Date(now),
-      disabledAt: enableAfterInstall ? null : new Date(now),
+      installedAt,
+      disabledAt,
+      uninstalledAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+    })
+    await writeAddonStateSnapshot(manifest.id, {
+      enabled: enableAfterInstall,
+      installedAt: installedAt.toISOString(),
+      disabledAt: disabledAt?.toISOString() ?? null,
       uninstalledAt: null,
       lastErrorAt: null,
       lastErrorMessage: null,
     })
 
-    clearAddonsRuntimeCache()
-    revalidateGlobalLayoutAddonSlotsCache()
+    refreshAddonRuntime(manifest.id)
     await syncAddonRegistryState()
     const addons = await loadAddonsRuntimeFresh()
     const installedAddon = addons.find((item) => item.manifest.id === manifest.id) ?? null
@@ -510,6 +528,14 @@ export async function installAddonFromZip(input: InstallAddonFromZipInput) {
         permissionsJson: installedAddon.manifest.permissions ?? [],
         installedAt: new Date(now),
         disabledAt: enableAfterInstall ? null : new Date(now),
+        uninstalledAt: null,
+        lastErrorAt: null,
+        lastErrorMessage: null,
+      })
+      await writeAddonStateSnapshot(installedAddon.manifest.id, {
+        enabled: enableAfterInstall,
+        installedAt: now,
+        disabledAt: enableAfterInstall ? null : now,
         uninstalledAt: null,
         lastErrorAt: null,
         lastErrorMessage: null,
@@ -622,9 +648,8 @@ export async function removeInstalledAddon(addonId: string) {
     await cleanupAddonBackgroundJobs(addonId)
   }
   await cleanupAddonPersistentState(addonId)
-  await deleteAddonRegistryRecord(addonId)
-  clearAddonsRuntimeCache()
-  revalidateGlobalLayoutAddonSlotsCache()
+  await deleteAddonState(addonId)
+  refreshAddonRuntime(addonId)
 
   await executeAddonActionHook("addon.uninstalled.after", {
     addonId,

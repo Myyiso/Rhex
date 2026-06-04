@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useRef, useState, useTransition } from "react"
 
 import { AddonManagementActionButtons } from "@/components/admin/addon-management-action-buttons"
@@ -205,6 +206,7 @@ function getProvidePreviewCount(provides: AddonInstallPreviewData["provides"]) {
 }
 
 export function AddonsHostAdminPage({ initialData }: AddonsHostAdminPageProps) {
+  const router = useRouter()
   const [data, setData] = useState(initialData)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [enableAfterInstall, setEnableAfterInstall] = useState(true)
@@ -223,6 +225,7 @@ export function AddonsHostAdminPage({ initialData }: AddonsHostAdminPageProps) {
           setPendingOverviewAction(action)
           const result = await postAddonsHostAction(action)
           setData(result.data!)
+          router.refresh()
           toast.success(
             result.message
               ?? (action === "sync" ? "插件宿主已同步" : "插件宿主缓存已清除"),
@@ -326,6 +329,7 @@ export function AddonsHostAdminPage({ initialData }: AddonsHostAdminPageProps) {
 
           setData(result.data)
           resetInstallSelection()
+          router.refresh()
           const successTitle = result.message?.includes("覆盖安装")
             ? "覆盖成功"
             : result.message?.includes("升级")

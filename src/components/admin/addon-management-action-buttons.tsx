@@ -12,7 +12,6 @@ interface AddonManagementActionButtonsProps {
   addon: AddonAdminItem
   compact?: boolean
   onUpdated?: (data: AddonsAdminData) => void
-  refreshOnComplete?: boolean
 }
 
 interface AdminApiPayload<TData> {
@@ -45,7 +44,6 @@ export function AddonManagementActionButtons({
   addon,
   compact = false,
   onUpdated,
-  refreshOnComplete = false,
 }: AddonManagementActionButtonsProps) {
   const pathname = usePathname()
   const router = useRouter()
@@ -101,9 +99,7 @@ export function AddonManagementActionButtons({
             return
           }
 
-          if (refreshOnComplete) {
-            router.refresh()
-          }
+          router.refresh()
 
           toast.success(successMessage, "操作成功")
         } catch (error) {

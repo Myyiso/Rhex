@@ -19,7 +19,7 @@ import {
   resolveSafeAddonChildPath,
 } from "@/addons-host/runtime/fs"
 import { readAddonConfigValue, writeAddonConfigValue } from "@/addons-host/runtime/config"
-import { revalidateGlobalLayoutAddonSlotsCache } from "@/addons-host/runtime/global-layout-slot-cache"
+import { revalidateAddonRuntimeCaches } from "@/addons-host/runtime/cache-invalidation"
 import { addonHasPermission } from "@/addons-host/runtime/permissions"
 import { readAddonSecretValue, writeAddonSecretValue } from "@/addons-host/runtime/secrets"
 import {
@@ -179,7 +179,9 @@ export function buildAddonExecutionContext(addon: LoadedAddonRuntime, input?: {
         throwOnError: true,
       })
       await writeAddonConfigValue(addon.manifest.id, configKey, value)
-      revalidateGlobalLayoutAddonSlotsCache()
+      const { clearAddonsRuntimeCache } = await import("@/addons-host/runtime/loader")
+      clearAddonsRuntimeCache()
+      revalidateAddonRuntimeCaches(addon.manifest.id)
       await executeAddonActionHook("addon.config.changed.after", {
         addonId: addon.manifest.id,
         configKey,
@@ -204,6 +206,9 @@ export function buildAddonExecutionContext(addon: LoadedAddonRuntime, input?: {
         `addon "${addon.manifest.id}" is not allowed to write secrets`,
       )
       await writeAddonSecretValue(addon.manifest.id, secretKey, value)
+      const { clearAddonsRuntimeCache } = await import("@/addons-host/runtime/loader")
+      clearAddonsRuntimeCache()
+      revalidateAddonRuntimeCaches(addon.manifest.id)
     },
     database,
     backgroundJobs: {
